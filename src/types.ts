@@ -23,4 +23,5 @@ export interface ReviewSubmissionData {
   name: string;
   status: SectionStatus;
   comment: string;
+  deviceType?: 'Mobile' | 'Desktop / Laptop';
 }

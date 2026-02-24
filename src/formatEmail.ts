@@ -71,6 +71,7 @@ export function formatReviewEmail(
   const reviewed = data.filter((s) => s.status !== 'unreviewed').length;
   const approved = data.filter((s) => s.status === 'approved').length;
   const commented = data.filter((s) => s.status === 'commented').length;
+  const deviceType = data[0]?.deviceType;
   const submittedAt = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -88,6 +89,7 @@ export function formatReviewEmail(
   <div style="background:linear-gradient(135deg,#0ea5e9,#8b5cf6);padding:28px;border-radius:12px;margin-bottom:24px;text-align:center;">
     <h1 style="color:white;font-size:24px;margin:0 0 6px;font-weight:800;">Website Review Complete</h1>
     <p style="color:rgba(255,255,255,.9);margin:0;font-size:15px;">${siteName}</p>
+    ${deviceType ? `<span style="display:inline-block;margin-top:12px;background:rgba(255,255,255,.2);color:white;font-size:12px;font-weight:600;padding:4px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.35);">Reviewed on ${deviceType}</span>` : ''}
   </div>
 
   <div style="display:flex;gap:12px;margin-bottom:28px;">

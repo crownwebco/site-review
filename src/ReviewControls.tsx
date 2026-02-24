@@ -43,10 +43,16 @@ export function ReviewControls({
   const currentPage = getCurrentPage(pathname);
 
   const [comment, setComment] = useState('');
+  const [deviceType, setDeviceType] = useState<'Mobile' | 'Desktop / Laptop'>('Desktop / Laptop');
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [isPending, startTransition] = useTransition();
+
+  // Detect device type on mount
+  useEffect(() => {
+    setDeviceType(window.innerWidth < 768 ? 'Mobile' : 'Desktop / Laptop');
+  }, []);
 
   // Populate textarea with existing comment whenever the modal opens
   useEffect(() => {
@@ -77,6 +83,7 @@ export function ReviewControls({
             name: s.name,
             status: s.status,
             comment: s.comment,
+            deviceType,
           }))
         );
         setSubmitStatus(result.success ? 'success' : 'error');
