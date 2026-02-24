@@ -33,10 +33,8 @@ A drop-in client review tool for Next.js + Tailwind CSS websites. Let your clien
 ### 1. Install the package
 
 ```bash
-npm install github:crownwebdesign/site-review
+npm install github:crownwebco/site-review
 ```
-
-Replace `crownwebdesign` with your actual GitHub username.
 
 ### 2. Tell Next.js to compile the package source
 
