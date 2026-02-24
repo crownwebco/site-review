@@ -68,13 +68,13 @@ export function ReviewSection({ id, children }: ReviewSectionProps) {
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Section name — top left */}
-      <div className="pointer-events-none absolute left-2 top-2 z-20 select-none rounded bg-black/60 px-2 py-1 text-xs font-medium text-white">
+      <div className="pointer-events-none absolute left-2 top-2 z-[60] select-none rounded bg-black/60 px-2 py-1 text-xs font-medium text-white">
         {name}
       </div>
 
       {/* Status badge — top right */}
       <div
-        className={`pointer-events-none absolute right-2 top-2 z-20 flex select-none items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-white ${badgeBg}`}
+        className={`pointer-events-none absolute right-2 top-2 z-[60] flex select-none items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-white ${badgeBg}`}
       >
         {statusIcon}
         <span className="hidden sm:inline">{statusText}</span>
@@ -82,7 +82,7 @@ export function ReviewSection({ id, children }: ReviewSectionProps) {
 
       {/* Action buttons — visible on hover */}
       <div
-        className={`absolute right-2 top-10 z-20 flex gap-1.5 transition-opacity duration-150 ${
+        className={`absolute right-2 top-10 z-[60] flex gap-1.5 transition-opacity duration-150 ${
           isHovered ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
       >

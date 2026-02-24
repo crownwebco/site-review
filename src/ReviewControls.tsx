@@ -9,9 +9,11 @@ export interface ReviewControlsProps {
   /**
    * Async function that receives the review data and sends the email.
    * Use a Next.js server action — see the README for a copy-paste template.
+   * `additionalComments` is the optional free-text field from the submit modal.
    */
   onSubmit: (
-    data: ReviewSubmissionData[]
+    data: ReviewSubmissionData[],
+    additionalComments?: string
   ) => Promise<{ success: boolean; message: string }>;
   /**
    * Project name shown in the submit confirmation modal.
@@ -43,6 +45,7 @@ export function ReviewControls({
   const currentPage = getCurrentPage(pathname);
 
   const [comment, setComment] = useState('');
+  const [additionalComments, setAdditionalComments] = useState('');
   const [deviceType, setDeviceType] = useState<'Mobile' | 'Desktop / Laptop'>('Desktop / Laptop');
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -84,7 +87,8 @@ export function ReviewControls({
             status: s.status,
             comment: s.comment,
             deviceType,
-          }))
+          })),
+          additionalComments.trim() || undefined
         );
         setSubmitStatus(result.success ? 'success' : 'error');
       } catch {
@@ -214,6 +218,22 @@ export function ReviewControls({
                   </div>
                 );
               })}
+            </div>
+
+            {/* Additional comments */}
+            <div className="border-t border-gray-100 px-6 py-4">
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                Anything else?{' '}
+                <span className="font-normal text-gray-400">(optional)</span>
+              </label>
+              <textarea
+                value={additionalComments}
+                onChange={(e) => setAdditionalComments(e.target.value)}
+                placeholder="Any other thoughts or general feedback that didn't fit a specific section…"
+                rows={3}
+                disabled={isPending || submitStatus !== 'idle'}
+                className="w-full resize-none rounded-lg border border-gray-300 p-3 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:opacity-50"
+              />
             </div>
 
             {/* Footer actions */}

@@ -128,9 +128,9 @@ export async function submitReview(
 
   const html = formatReviewEmail(data, 'Your Client Site Name');
 
-  // If RESEND_API_KEY isn't configured, log to console and return success
+  // If EMAIL_SERVICE_API_KEY isn't configured, log to console and return success
   // so the client still sees a confirmation. See Step 5 for email setup.
-  if (!process.env.RESEND_API_KEY) {
+  if (!process.env.EMAIL_SERVICE_API_KEY) {
     console.log('=== REVIEW SUBMITTED (email not configured) ===');
     console.log(subject);
     data.forEach((s) => {
@@ -144,7 +144,7 @@ export async function submitReview(
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${process.env.EMAIL_SERVICE_API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -254,7 +254,7 @@ The server action template uses [Resend](https://resend.com), which has a genero
 1. Sign up at [resend.com](https://resend.com) and copy your API key
 2. Add it to `.env.local` in the project:
    ```
-   RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
+   EMAIL_SERVICE_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
    ```
 3. Without the key, reviews log to your terminal console and still show a success confirmation to the client (useful during development)
 
