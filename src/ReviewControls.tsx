@@ -48,6 +48,7 @@ export function ReviewControls({
   const [additionalComments, setAdditionalComments] = useState('');
   const [deviceType, setDeviceType] = useState<'Mobile' | 'Desktop / Laptop'>('Desktop / Laptop');
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [isPending, startTransition] = useTransition();
@@ -65,6 +66,15 @@ export function ReviewControls({
       setComment('');
     }
   }, [activeModalId, sections]);
+
+  const togglePageExpanded = (page: string) => {
+    setExpandedPages((prev) => {
+      const next = new Set(prev);
+      if (next.has(page)) next.delete(page);
+      else next.add(page);
+      return next;
+    });
+  };
 
   const activeSection = activeModalId ? sections[activeModalId] : null;
   const totalProgress = getTotalProgress();
@@ -101,7 +111,7 @@ export function ReviewControls({
     <>
       {/* ── Comment Modal ── */}
       {activeModalId && activeSection && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => closeModal()}
@@ -149,7 +159,7 @@ export function ReviewControls({
 
       {/* ── Submit Review Modal ── */}
       {showSubmitModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => {
@@ -306,7 +316,7 @@ export function ReviewControls({
         // Enter Review Mode button
         <button
           onClick={toggleReviewMode}
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:scale-105 hover:bg-violet-700"
+          className="fixed bottom-6 right-6 z-[70] flex items-center gap-2 rounded-full bg-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:scale-105 hover:bg-violet-700"
         >
           <svg className="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -315,7 +325,7 @@ export function ReviewControls({
         </button>
       ) : (
         // Review panel
-        <div className="fixed bottom-6 right-6 z-40 w-72 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="fixed bottom-4 left-4 right-4 z-[70] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl sm:bottom-6 sm:left-auto sm:right-6 sm:w-72">
           {/* Panel header */}
           <div className="flex items-center justify-between bg-blue-500 px-4 py-3">
             <div className="flex items-center gap-2 text-white">
@@ -353,49 +363,92 @@ export function ReviewControls({
           {!isPanelCollapsed && (
             <>
               {/* Per-page progress */}
-              <div className="space-y-2 p-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+              <div className="max-h-[40vh] overflow-y-auto">
+                <p className="sticky top-0 bg-white px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Progress by Page
                 </p>
-                {allPages.map((page) => {
-                  const { reviewed, total } = getPageProgress(page);
-                  const pct = total > 0 ? (reviewed / total) * 100 : 0;
-                  const isCurrent = page === currentPage;
-                  const isDone = reviewed === total;
+                <div className="space-y-1 px-3 pb-3">
+                  {allPages.map((page) => {
+                    const { reviewed, total } = getPageProgress(page);
+                    const pct = total > 0 ? (reviewed / total) * 100 : 0;
+                    const isCurrent = page === currentPage;
+                    const isDone = reviewed === total;
+                    const isExpanded = expandedPages.has(page);
+                    const pageSections = Object.values(sections).filter((s) => s.page === page);
 
-                  return (
-                    <div
-                      key={page}
-                      className={`rounded-lg px-3 py-2 ${isCurrent ? 'bg-blue-50 ring-1 ring-blue-200' : ''}`}
-                    >
-                      <div className="mb-1 flex items-center justify-between">
-                        <span
-                          className={`text-xs font-medium ${
-                            isCurrent ? 'text-blue-700' : 'text-gray-700'
-                          }`}
+                    return (
+                      <div
+                        key={page}
+                        className={`rounded-lg ${isCurrent ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-gray-50'}`}
+                      >
+                        <button
+                          onClick={() => togglePageExpanded(page)}
+                          className="w-full px-3 py-2 text-left"
                         >
-                          {isCurrent && <span className="mr-1 font-bold">›</span>}
-                          {getPageName(page)}
-                        </span>
-                        <span
-                          className={`text-xs font-semibold ${
-                            isDone ? 'text-green-600' : 'text-gray-500'
-                          }`}
-                        >
-                          {reviewed}/{total}
-                        </span>
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <span
+                              className={`text-xs font-medium ${
+                                isCurrent ? 'text-blue-700' : 'text-gray-700'
+                              }`}
+                            >
+                              {isCurrent && <span className="mr-1 font-bold">›</span>}
+                              {getPageName(page)}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`text-xs font-semibold ${
+                                  isDone ? 'text-green-600' : 'text-gray-500'
+                                }`}
+                              >
+                                {reviewed}/{total}
+                              </span>
+                              <svg
+                                className={`h-3 w-3 text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </div>
+                          <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                isDone ? 'bg-green-500' : 'bg-blue-400'
+                              }`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="border-t border-gray-100 px-3 pb-2.5 pt-2">
+                            <div className="space-y-1.5">
+                              {pageSections.map((s) => (
+                                <div key={s.id} className="flex items-center gap-1.5 text-xs">
+                                  <span
+                                    className={`shrink-0 font-bold ${
+                                      s.status === 'approved'
+                                        ? 'text-green-500'
+                                        : s.status === 'commented'
+                                          ? 'text-amber-500'
+                                          : 'text-gray-300'
+                                    }`}
+                                  >
+                                    {s.status === 'approved' ? '✓' : s.status === 'commented' ? '✏' : '○'}
+                                  </span>
+                                  <span className="truncate text-gray-600">{s.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
-                        <div
-                          className={`h-full rounded-full transition-all duration-300 ${
-                            isDone ? 'bg-green-500' : 'bg-blue-400'
-                          }`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Total progress */}
