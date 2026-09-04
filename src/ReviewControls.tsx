@@ -325,7 +325,7 @@ export function ReviewControls({
         </button>
       ) : (
         // Review panel
-        <div className="fixed bottom-4 left-4 right-4 z-[70] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl sm:bottom-6 sm:left-auto sm:right-6 sm:w-72">
+        <div className="fixed bottom-4 left-4 right-4 z-[70] flex max-h-[520px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl sm:bottom-6 sm:left-auto sm:right-6 sm:w-72">
           {/* Panel header */}
           <div className="flex items-center justify-between bg-blue-500 px-4 py-3">
             <div className="flex items-center gap-2 text-white">
@@ -361,9 +361,9 @@ export function ReviewControls({
           </div>
 
           {!isPanelCollapsed && (
-            <>
-              {/* Per-page progress */}
-              <div className="max-h-[40vh] overflow-y-auto">
+            <div className="flex min-h-0 flex-1 flex-col">
+              {/* Per-page progress — scrollable */}
+              <div className="min-h-0 flex-1 overflow-y-auto">
                 <p className="sticky top-0 bg-white px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Progress by Page
                 </p>
@@ -452,7 +452,7 @@ export function ReviewControls({
               </div>
 
               {/* Total progress */}
-              <div className="border-t border-gray-100 px-4 py-3">
+              <div className="shrink-0 border-t border-gray-100 px-4 py-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium text-gray-700">Total Progress</span>
                   <span
@@ -476,7 +476,7 @@ export function ReviewControls({
               </div>
 
               {/* Submit button */}
-              <div className="border-t border-gray-100 p-4">
+              <div className="shrink-0 border-t border-gray-100 p-4">
                 <button
                   onClick={() => setShowSubmitModal(true)}
                   disabled={!isComplete}
@@ -496,7 +496,7 @@ export function ReviewControls({
                     : `${totalProgress.total - totalProgress.reviewed} section${totalProgress.total - totalProgress.reviewed === 1 ? '' : 's'} remaining`}
                 </button>
               </div>
-            </>
+            </div>
           )}
         </div>
       )}

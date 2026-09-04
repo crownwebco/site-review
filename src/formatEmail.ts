@@ -3,10 +3,16 @@ import type { ReviewSubmissionData } from './types';
 /**
  * Generates an HTML email body from review submission data.
  * Import this in your server action — it has no client-side dependencies.
+ *
+ * @param data              Per-section review results (status + comment) for every section.
+ * @param siteName          Project name shown in the email header.
+ * @param additionalComments Optional free-text from the submit modal's "Anything else?" field.
+ *                           This is the second argument `ReviewControls` passes to your `onSubmit`.
  */
 export function formatReviewEmail(
   data: ReviewSubmissionData[],
-  siteName = 'Website Review'
+  siteName = 'Website Review',
+  additionalComments?: string
 ): string {
   const byPage = data.reduce(
     (acc, s) => {
@@ -72,6 +78,7 @@ export function formatReviewEmail(
   const approved = data.filter((s) => s.status === 'approved').length;
   const commented = data.filter((s) => s.status === 'commented').length;
   const deviceType = data[0]?.deviceType;
+  const extra = additionalComments?.trim();
   const submittedAt = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -110,6 +117,15 @@ export function formatReviewEmail(
   <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:0 0 20px;">Review by Page</h2>
 
   ${pageBlocks}
+
+  ${
+    extra
+      ? `<div style="margin-top:8px;margin-bottom:8px;padding:16px 18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+    <h3 style="font-size:14px;font-weight:700;color:#0f172a;margin:0 0 8px;">Additional Comments</h3>
+    <p style="margin:0;color:#475569;font-size:14px;white-space:pre-wrap;">${extra}</p>
+  </div>`
+      : ''
+  }
 
   <div style="margin-top:24px;padding:14px;background:#f8fafc;border-radius:8px;font-size:12px;color:#94a3b8;text-align:center;">
     Review submitted on ${submittedAt}

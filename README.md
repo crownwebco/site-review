@@ -11,12 +11,33 @@ A drop-in client review tool for Next.js + Tailwind CSS websites. Let your clien
   - Blue dashed = not yet reviewed
   - Green solid = approved
   - Amber solid = has feedback
+- Each section shows its **name** (top-left) and a **status badge** (top-right)
 - **Hovering over a section** shows two action buttons:
   - **Green checkmark** — marks the section as approved
   - **Amber pencil** — opens a modal to type feedback
-- A **progress panel** tracks how many sections have been reviewed on each page and in total
+- A **progress panel** tracks how many sections have been reviewed on each page and in total:
+  - The panel can be **collapsed** to just its header, and **each page row expands** to list its individual sections and their statuses
+  - The page you're currently on is highlighted
 - All progress is **saved in `localStorage`** — the client can close the tab and pick up where they left off
-- Once every section is reviewed, a **"Send Review to Developer"** button activates and emails you the full summary
+- Once every section is reviewed, a **"Send Review to Developer"** button activates. Submitting opens a summary modal with an optional **"Anything else?"** free-text field, then emails you the full summary
+- The client's **device type** (Mobile vs. Desktop / Laptop) is detected automatically and included in the email
+
+---
+
+## Feature reference
+
+| Feature | Where it lives | Notes |
+|---------|----------------|-------|
+| Enter/exit Review Mode | `ReviewControls` | Floating button toggles `isReviewMode` in context |
+| Section borders, badges, hover actions | `ReviewSection` | Renders nothing extra when review mode is off |
+| Approve a section | `ReviewSection` → `approveSection` | Sets status `approved`, clears any comment |
+| Leave feedback | `ReviewSection` → comment modal in `ReviewControls` | Sets status `commented` and stores the text |
+| Progress by page / total | `ReviewContext` | `getPageProgress`, `getTotalProgress`, `isComplete` |
+| Collapsible panel + expandable page rows | `ReviewControls` | Local UI state (`isPanelCollapsed`, `expandedPages`) |
+| Persistence across reloads | `ReviewContext` | Reads/writes `localStorage` under `storageKey` |
+| Device detection | `ReviewControls` | `window.innerWidth < 768` → `'Mobile'`, else `'Desktop / Laptop'` |
+| Additional comments | `ReviewControls` → `onSubmit` 2nd arg | Rendered by `formatReviewEmail` if you pass it through |
+| Summary email HTML | `formatEmail.ts` | No client deps — safe to import in a server action |
 
 ---
 
@@ -120,13 +141,14 @@ import {
 } from '@crownwebdesign/site-review/server';
 
 export async function submitReview(
-  data: ReviewSubmissionData[]
+  data: ReviewSubmissionData[],
+  additionalComments?: string
 ): Promise<{ success: boolean; message: string }> {
   const reviewed = data.filter((s) => s.status !== 'unreviewed').length;
   const commented = data.filter((s) => s.status === 'commented').length;
   const subject = `Website Review — ${reviewed}/${data.length} sections reviewed, ${commented} with feedback`;
 
-  const html = formatReviewEmail(data, 'Your Client Site Name');
+  const html = formatReviewEmail(data, 'Your Client Site Name', additionalComments);
 
   // If EMAIL_SERVICE_API_KEY isn't configured, log to console and return success
   // so the client still sees a confirmation. See Step 5 for email setup.
@@ -138,6 +160,7 @@ export async function submitReview(
         console.log(`  [${s.status.toUpperCase()}] ${s.page} › ${s.name}${s.comment ? ': ' + s.comment : ''}`);
       }
     });
+    if (additionalComments) console.log(`  [ADDITIONAL] ${additionalComments}`);
     return { success: true, message: 'Review recorded.' };
   }
 
@@ -163,6 +186,8 @@ export async function submitReview(
   return { success: true, message: 'Review sent!' };
 }
 ```
+
+> **Note:** The `additionalComments` second argument is the free-text from the submit modal's "Anything else?" field. Passing it to `formatReviewEmail` renders it as its own block in the email; omit it and the email simply skips that block.
 
 > **Note:** `from: 'onboarding@resend.dev'` works on Resend's free plan without domain verification. Once you've verified your domain in Resend, switch it to something like `from: 'Website Review <noreply@crownwebdesign.com>'`.
 
@@ -211,7 +236,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `onSubmit` | `(data) => Promise<{success, message}>` | required | Your server action from Step 2 |
+| `onSubmit` | `(data, additionalComments?) => Promise<{success, message}>` | required | Your server action from Step 2. Receives the per-section results plus the optional "Anything else?" text |
 | `siteName` | `string` | `'this website'` | Project name shown in the submission confirmation modal |
 
 ### Step 4 — Wrap your page sections
@@ -262,7 +287,7 @@ The server action template uses [Resend](https://resend.com), which has a genero
 
 ## Removing after the review is done
 
-Once the client has completed their review and you've made their requested changes, removing the tool is a clean four-step process:
+Once the client has completed their review and you've made their requested changes, removing the tool is a clean six-step process:
 
 **1. Uninstall the package**
 ```bash
@@ -273,7 +298,7 @@ npm uninstall @crownwebdesign/site-review
 
 **3. Update `tailwind.config.ts`** — remove the `node_modules/...` content entry
 
-**4. Delete the three project files you added:**
+**4. Delete the two project files you added:**
 ```bash
 rm src/config/reviewSections.ts
 rm src/lib/actions/submitReview.ts
@@ -334,6 +359,8 @@ npm install github:crownwebdesign/site-review
 
 ## File structure
 
+The package ships raw TypeScript source (no build step). There are two entry points: the default one for **client** code and `/server` for **server actions**.
+
 ```
 src/
 ├── types.ts           Pure TypeScript types — no React, no 'use client'
@@ -343,6 +370,49 @@ src/
 ├── ReviewSection.tsx  Section wrapper with borders and action buttons
 ├── ReviewControls.tsx Floating panel, comment modal, submit modal
 └── index.ts           Main barrel export for client-side usage
+```
+
+### What each file does
+
+- **`types.ts`** — The shared vocabulary. `SectionStatus` (`'unreviewed' | 'approved' | 'commented'`), `SectionDef` (what *you* define per section: `id`, `page`, `pageName`, `name`), `SectionState` (a `SectionDef` plus runtime `status` + `comment`), and `ReviewSubmissionData` (the flattened shape handed to your `onSubmit`, including optional `deviceType`). Contains no runtime code, so it's safe to import from anywhere.
+
+- **`ReviewContext.tsx`** (`ReviewProvider`, `useReview`) — The single source of truth. A `useReducer` store holds `isReviewMode`, the map of section states, and which comment modal is open. It:
+  - seeds every section as `unreviewed` from your `sections` config,
+  - **hydrates** from `localStorage` on mount and **persists** on every change (keyed by `storageKey`),
+  - derives the page list, per-page/total progress, `isComplete`, and maps a `pathname` to the current page id (`getCurrentPage`, using `homePageId` for `/`).
+  Any component under the provider reads all of this via the `useReview()` hook.
+
+- **`ReviewSection.tsx`** (`ReviewSection`) — The wrapper you put around each page section. When review mode is **off** (or the `id` isn't in config) it's a transparent pass-through — literally `<>{children}</>`, zero visual/DOM overhead in production. When **on**, it draws the colored border, the name label, the status badge, and the hover-in approve/comment buttons.
+
+- **`ReviewControls.tsx`** (`ReviewControls`) — All the floating chrome, rendered once in your layout:
+  - the "Review Mode" launch button,
+  - the active review **panel** (collapsible, with expandable per-page rows, current-page highlight, progress bars, and the gated submit button),
+  - the **comment modal** (pre-filled when editing an existing comment),
+  - the **submit modal** (summary, "Anything else?" field, and success/error states around your `onSubmit`).
+  It also detects device type on mount and passes it through with the submission.
+
+- **`formatEmail.ts`** (`formatReviewEmail`) — Turns `ReviewSubmissionData[]` (+ optional site name and additional comments) into a self-contained HTML email: header with device badge, approved/feedback/total summary cards, a per-page table, and an optional additional-comments block. No React or browser APIs, so it runs fine inside a server action.
+
+- **`server.ts`** — Barrel export of only the server-safe pieces (`formatReviewEmail` + types). Import from `@crownwebdesign/site-review/server` in server actions so no `'use client'` component is pulled into your server bundle.
+
+- **`index.ts`** — Barrel export for client usage (`ReviewProvider`, `ReviewSection`, `ReviewControls`) plus all the types.
+
+### Data flow at a glance
+
+```
+Your config (SectionDef[])
+        │
+        ▼
+  ReviewProvider ──(useReview)──► ReviewSection   (approve / comment per section)
+        │  state + localStorage        │
+        │                              ▼
+        └──────────────────────► ReviewControls   (panel, progress, submit)
+                                        │
+                                        ▼
+                            onSubmit(data, additionalComments)   ← your server action
+                                        │
+                                        ▼
+                            formatReviewEmail(...)  →  email HTML
 ```
 
 ---
