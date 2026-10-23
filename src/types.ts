@@ -1,27 +1,64 @@
 export type SectionStatus = 'unreviewed' | 'approved' | 'commented';
 
-export interface SectionDef {
-  /** Unique identifier — must match the `id` prop on the corresponding <ReviewSection> */
+/**
+ * A reviewable section discovered at runtime from a `data-review` attribute.
+ * v2 no longer requires a hand-authored config — sections register themselves.
+ */
+export interface SectionState {
+  /** Stable id: `data-review-id` if present, else a slug of `page + name`. */
   id: string;
-  /** URL path segment for this section's page (e.g. 'home', 'about', 'services') */
+  /** Page key derived from the pathname (e.g. 'home', 'about'). */
   page: string;
-  /** Human-readable page name shown in the progress panel (e.g. 'Home', 'About Us') */
+  /** Human-readable page label for the panel/email (derived or `data-review-page`). */
   pageName: string;
-  /** Human-readable section name shown in badges and the summary email */
+  /** Section label from the `data-review` attribute value. */
   name: string;
-}
-
-/** Runtime state for a single section — extends SectionDef with review data */
-export interface SectionState extends SectionDef {
   status: SectionStatus;
   comment: string;
 }
 
 export interface ReviewSubmissionData {
   id: string;
+  /** Page label (grouping key in the email). */
   page: string;
   name: string;
   status: SectionStatus;
   comment: string;
   deviceType?: 'Mobile' | 'Desktop / Laptop';
+  /** v2: full URL the section was reviewed on. */
+  url?: string;
+  /** v2: viewport size at submit time, e.g. "1440x900". */
+  viewport?: string;
+}
+
+/** Tunable behavior — all optional with sensible defaults. */
+export interface ReviewOptions {
+  /**
+   * Hostname suffix that activates review mode. Every client's staging site is
+   * `clientname.crownwebdesign.com`, so the feature stays inert on production
+   * and preview hosts even though the code ships there.
+   * @default '.crownwebdesign.com'
+   */
+  allowedHostSuffix?: string;
+  /**
+   * Also activate on localhost/127.0.0.1 so developers can test locally.
+   * @default true
+   */
+  allowLocalhost?: boolean;
+  /**
+   * Query param for the magic link. Visiting `?<param>=<token>` unlocks the
+   * feature for that browser (persisted); `?<param>=off` clears it.
+   * @default 'review'
+   */
+  tokenParam?: string;
+  /**
+   * localStorage namespace for this project (section data, unlock, mode).
+   * @default 'site-review'
+   */
+  storageKey?: string;
+  /**
+   * Require every discovered section to be reviewed before submit enables.
+   * @default false
+   */
+  requireComplete?: boolean;
 }
