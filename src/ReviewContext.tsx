@@ -5,55 +5,85 @@ import React, {
   useContext,
   useReducer,
   useEffect,
+  useState,
   useCallback,
   useMemo,
 } from 'react';
-import type { SectionDef, SectionState, SectionStatus, ReviewSubmissionData } from './types';
+import type {
+  SectionState,
+  SectionStatus,
+  ReviewSubmissionData,
+  ReviewOptions,
+} from './types';
+import { ReviewUI } from './ReviewUI';
 
-export type { SectionDef, SectionState, SectionStatus, ReviewSubmissionData };
+export type { SectionState, SectionStatus, ReviewSubmissionData, ReviewOptions };
+
+/** A section registering itself from a discovered `data-review` element. */
+export interface SectionRegistration {
+  id: string;
+  page: string;
+  pageName: string;
+  name: string;
+}
 
 interface ReviewContextValue {
-  isReviewMode: boolean;
-  sections: Record<string, SectionState>;
-  activeModalId: string | null;
-  allPages: string[];
+  /** Feature is allowed on this host AND switched on (env flag or magic-link token). */
+  active: boolean;
+  /** The reviewer has entered review mode (persisted across reloads). */
+  reviewMode: boolean;
   toggleReviewMode: () => void;
+  sections: Record<string, SectionState>;
+  registerSection: (reg: SectionRegistration) => void;
   approveSection: (id: string) => void;
   addComment: (id: string, comment: string) => void;
+  activeModalId: string | null;
   openModal: (id: string) => void;
   closeModal: () => void;
   getPageProgress: (page: string) => { reviewed: number; total: number };
   getTotalProgress: () => { reviewed: number; total: number };
-  getPageName: (pageId: string) => string;
-  getCurrentPage: (pathname: string) => string;
   isComplete: boolean;
+  requireComplete: boolean;
+  siteName: string;
+  submit: (
+    data: ReviewSubmissionData[],
+    additionalComments?: string
+  ) => Promise<{ success: boolean; message: string }>;
 }
 
 const ReviewContext = createContext<ReviewContextValue | null>(null);
 
 type Action =
-  | { type: 'TOGGLE_REVIEW_MODE' }
+  | { type: 'LOAD'; sections: Record<string, SectionState> }
+  | { type: 'REGISTER'; reg: SectionRegistration }
   | { type: 'APPROVE'; id: string }
   | { type: 'COMMENT'; id: string; comment: string }
-  | { type: 'SET_MODAL'; id: string | null }
-  | { type: 'LOAD'; sections: Record<string, SectionState> };
+  | { type: 'SET_MODAL'; id: string | null };
 
 interface State {
-  isReviewMode: boolean;
   sections: Record<string, SectionState>;
   activeModalId: string | null;
 }
 
-function initSections(defs: SectionDef[]): Record<string, SectionState> {
-  return Object.fromEntries(
-    defs.map((d) => [d.id, { ...d, status: 'unreviewed' as SectionStatus, comment: '' }])
-  );
-}
-
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case 'TOGGLE_REVIEW_MODE':
-      return { ...state, isReviewMode: !state.isReviewMode };
+    case 'LOAD':
+      return { ...state, sections: action.sections };
+    case 'REGISTER': {
+      const existing = state.sections[action.reg.id];
+      // Preserve status/comment across navigations; refresh labels.
+      return {
+        ...state,
+        sections: {
+          ...state.sections,
+          [action.reg.id]: {
+            ...action.reg,
+            status: existing?.status ?? 'unreviewed',
+            comment: existing?.comment ?? '',
+          },
+        },
+      };
+    }
     case 'APPROVE':
       return {
         ...state,
@@ -76,8 +106,6 @@ function reducer(state: State, action: Action): State {
       };
     case 'SET_MODAL':
       return { ...state, activeModalId: action.id };
-    case 'LOAD':
-      return { ...state, sections: action.sections };
     default:
       return state;
   }
@@ -85,82 +113,135 @@ function reducer(state: State, action: Action): State {
 
 export interface ReviewProviderProps {
   children: React.ReactNode;
-  /** All reviewable sections on the site. Define once and share across your layout and pages. */
-  sections: SectionDef[];
   /**
-   * Unique localStorage key for this project.
-   * Use something like "client-name-review" to avoid collisions between projects.
-   * @default 'site-review-data'
+   * Whether the feature is switched on for this environment. Read your env flag
+   * in the consuming app and pass it in, e.g.
+   * `enabled={process.env.NEXT_PUBLIC_REVIEW_ENABLED === 'true'}`.
+   * Even when true, the feature only appears on an allowed host (see options).
    */
-  storageKey?: string;
+  enabled?: boolean;
   /**
-   * The page ID used when the pathname is '/'.
-   * Must match the `page` field you used for your home page sections.
-   * @default 'home'
+   * Optional shared secret for the magic link. When set, only `?review=<token>`
+   * unlocks the feature; when unset, any non-empty `?review=` value unlocks it.
    */
-  homePageId?: string;
+  token?: string;
+  /** Project name shown in the panel and summary email. */
+  siteName?: string;
+  /** Server action that emails the review. See the package `/server` export. */
+  onSubmit: (
+    data: ReviewSubmissionData[],
+    additionalComments?: string
+  ) => Promise<{ success: boolean; message: string }>;
+  options?: ReviewOptions;
+}
+
+function isHostAllowed(suffix: string, allowLocalhost: boolean): boolean {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  if (
+    allowLocalhost &&
+    (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local'))
+  ) {
+    return true;
+  }
+  return h.endsWith(suffix);
 }
 
 export function ReviewProvider({
   children,
-  sections: sectionDefs,
-  storageKey = 'site-review-data',
-  homePageId = 'home',
+  enabled = false,
+  token,
+  siteName = 'this website',
+  onSubmit,
+  options,
 }: ReviewProviderProps) {
+  const {
+    allowedHostSuffix = '.crownwebdesign.com',
+    allowLocalhost = true,
+    tokenParam = 'review',
+    storageKey = 'site-review',
+    requireComplete = false,
+  } = options ?? {};
+
+  const [mounted, setMounted] = useState(false);
+  const [hostAllowed, setHostAllowed] = useState(false);
+  const [tokenUnlocked, setTokenUnlocked] = useState(false);
+  const [reviewMode, setReviewMode] = useState(false);
+
   const [state, dispatch] = useReducer(reducer, {
-    isReviewMode: false,
-    sections: initSections(sectionDefs),
+    sections: {},
     activeModalId: null,
   });
 
-  const allPages = useMemo(
-    () => [...new Set(sectionDefs.map((s) => s.page))],
-    [sectionDefs]
-  );
+  const unlockKey = `${storageKey}:unlocked`;
+  const modeKey = `${storageKey}:mode`;
 
-  // Load persisted statuses from localStorage on mount
+  // Mount: resolve host, process the magic-link token, restore persisted flags + data.
   useEffect(() => {
+    setMounted(true);
+    setHostAllowed(isHostAllowed(allowedHostSuffix, allowLocalhost));
+
     try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return;
-      const stored = JSON.parse(raw) as Record<
-        string,
-        { status: SectionStatus; comment: string }
-      >;
-      const sections = initSections(sectionDefs);
-      for (const id of Object.keys(stored)) {
-        if (sections[id] && stored[id]?.status) {
-          sections[id].status = stored[id].status;
-          sections[id].comment = stored[id].comment ?? '';
+      const params = new URLSearchParams(window.location.search);
+      if (params.has(tokenParam)) {
+        const value = params.get(tokenParam) ?? '';
+        if (value === 'off') {
+          localStorage.removeItem(unlockKey);
+        } else if (token ? value === token : value.length > 0) {
+          localStorage.setItem(unlockKey, '1');
         }
+        // Tidy the URL so the token isn't left lying around.
+        params.delete(tokenParam);
+        const qs = params.toString();
+        window.history.replaceState(
+          {},
+          '',
+          window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
+        );
       }
-      dispatch({ type: 'LOAD', sections });
+      setTokenUnlocked(localStorage.getItem(unlockKey) === '1');
+      setReviewMode(localStorage.getItem(modeKey) === '1');
+
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const stored = JSON.parse(raw) as Record<string, SectionState>;
+        dispatch({ type: 'LOAD', sections: stored });
+      }
     } catch {
-      // Ignore storage errors
+      // Ignore storage/URL errors — feature simply stays locked.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist statuses to localStorage whenever they change
-  useEffect(() => {
-    try {
-      const data = Object.fromEntries(
-        Object.entries(state.sections).map(([id, s]) => [
-          id,
-          { status: s.status, comment: s.comment },
-        ])
-      );
-      localStorage.setItem(storageKey, JSON.stringify(data));
-    } catch {
-      // Ignore storage errors
-    }
-  }, [state.sections, storageKey]);
+  const active = mounted && hostAllowed && (enabled || tokenUnlocked);
 
-  const toggleReviewMode = useCallback(() => dispatch({ type: 'TOGGLE_REVIEW_MODE' }), []);
-  const approveSection = useCallback(
-    (id: string) => dispatch({ type: 'APPROVE', id }),
+  // Persist section data whenever it changes.
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(state.sections));
+    } catch {
+      // ignore
+    }
+  }, [state.sections, storageKey, mounted]);
+
+  const toggleReviewMode = useCallback(() => {
+    setReviewMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(modeKey, next ? '1' : '0');
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, [modeKey]);
+
+  const registerSection = useCallback(
+    (reg: SectionRegistration) => dispatch({ type: 'REGISTER', reg }),
     []
   );
+  const approveSection = useCallback((id: string) => dispatch({ type: 'APPROVE', id }), []);
   const addComment = useCallback(
     (id: string, comment: string) => dispatch({ type: 'COMMENT', id, comment }),
     []
@@ -170,65 +251,49 @@ export function ReviewProvider({
 
   const getPageProgress = useCallback(
     (page: string) => {
-      const pageSections = sectionDefs.filter((s) => s.page === page);
-      const reviewed = pageSections.filter(
-        (s) => state.sections[s.id]?.status !== 'unreviewed'
-      ).length;
+      const pageSections = Object.values(state.sections).filter((s) => s.page === page);
+      const reviewed = pageSections.filter((s) => s.status !== 'unreviewed').length;
       return { reviewed, total: pageSections.length };
     },
-    [sectionDefs, state.sections]
+    [state.sections]
   );
 
   const getTotalProgress = useCallback(() => {
-    const reviewed = Object.values(state.sections).filter(
-      (s) => s.status !== 'unreviewed'
-    ).length;
-    return { reviewed, total: sectionDefs.length };
-  }, [sectionDefs, state.sections]);
+    const all = Object.values(state.sections);
+    return {
+      reviewed: all.filter((s) => s.status !== 'unreviewed').length,
+      total: all.length,
+    };
+  }, [state.sections]);
 
-  const getPageName = useCallback(
-    (pageId: string) => {
-      const match = sectionDefs.find((s) => s.page === pageId);
-      return (
-        match?.pageName ?? pageId.charAt(0).toUpperCase() + pageId.slice(1)
-      );
-    },
-    [sectionDefs]
-  );
+  const isComplete = useMemo(() => {
+    const all = Object.values(state.sections);
+    return all.length > 0 && all.every((s) => s.status !== 'unreviewed');
+  }, [state.sections]);
 
-  const getCurrentPage = useCallback(
-    (pathname: string): string => {
-      if (pathname === '/') return homePageId;
-      const segment = pathname.replace(/^\//, '').split('/')[0];
-      return allPages.includes(segment) ? segment : homePageId;
-    },
-    [allPages, homePageId]
-  );
-
-  const isComplete = sectionDefs.every(
-    (s) => state.sections[s.id]?.status !== 'unreviewed'
-  );
+  const value: ReviewContextValue = {
+    active,
+    reviewMode,
+    toggleReviewMode,
+    sections: state.sections,
+    registerSection,
+    approveSection,
+    addComment,
+    activeModalId: state.activeModalId,
+    openModal,
+    closeModal,
+    getPageProgress,
+    getTotalProgress,
+    isComplete,
+    requireComplete,
+    siteName,
+    submit: onSubmit,
+  };
 
   return (
-    <ReviewContext.Provider
-      value={{
-        isReviewMode: state.isReviewMode,
-        sections: state.sections,
-        activeModalId: state.activeModalId,
-        allPages,
-        toggleReviewMode,
-        approveSection,
-        addComment,
-        openModal,
-        closeModal,
-        getPageProgress,
-        getTotalProgress,
-        getPageName,
-        getCurrentPage,
-        isComplete,
-      }}
-    >
+    <ReviewContext.Provider value={value}>
       {children}
+      {active && <ReviewUI />}
     </ReviewContext.Provider>
   );
 }

@@ -1,17 +1,33 @@
 {
   "name": "@crownwebdesign/site-review",
-  "version": "1.0.0",
-  "description": "Drop-in client review mode for Next.js + Tailwind CSS websites",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "version": "2.0.0",
+  "description": "Drop-in client review mode for Next.js sites — self-contained styles, staging-gated by hostname, zero section config.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./server": "./src/server.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
   },
   "files": [
-    "src"
+    "dist"
   ],
   "sideEffects": false,
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crownwebco/site-review.git"
+  },
   "peerDependencies": {
     "next": ">=14.0.0",
     "react": ">=18.0.0",
@@ -32,7 +48,7 @@
     "nextjs",
     "review",
     "client-feedback",
-    "tailwind",
+    "staging",
     "web-development"
   ],
   "license": "MIT"

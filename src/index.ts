@@ -1,19 +1,14 @@
-// Components
+// Client component — mount once in your root/site layout.
 export { ReviewProvider } from './ReviewContext';
-export { ReviewSection } from './ReviewSection';
-export { ReviewControls } from './ReviewControls';
+export type { ReviewProviderProps } from './ReviewContext';
 
-// Types — safe to import anywhere (TypeScript strips them at runtime)
+// Types — safe to import anywhere (TypeScript strips them at runtime).
 export type {
-  SectionDef,
   SectionState,
   SectionStatus,
   ReviewSubmissionData,
+  ReviewOptions,
 } from './types';
 
-export type { ReviewProviderProps } from './ReviewContext';
-export type { ReviewSectionProps } from './ReviewSection';
-export type { ReviewControlsProps } from './ReviewControls';
-
-// Note: for server actions, import from '@crownwebdesign/site-review/server' instead:
+// Note: for the server action helper, import from '@crownwebdesign/site-review/server':
 //   import { formatReviewEmail, type ReviewSubmissionData } from '@crownwebdesign/site-review/server'
