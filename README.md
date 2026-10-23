@@ -7,6 +7,7 @@ v2 is built for the Crown Web staging workflow:
 - **Staging-only by hostname.** The feature only activates on `*.crownwebdesign.com` (your staging domains) or `localhost`. The code can ship to production untouched and stays completely inert there.
 - **Dev-triggered, not always-on.** You turn it on for a review period with an env flag and/or a magic link, and turn it off when you're done.
 - **Zero section config.** Mark reviewable blocks with a `data-review="Name"` attribute — no component wrapping, no config array.
+- **Pin anywhere.** Beyond tagged sections, the client can drop a pin on *any* spot; each pin records the section it landed in, the page, and the element clicked.
 - **Self-contained styling.** All UI is inline-styled. No Tailwind setup, no CSS import, no `transpilePackages`.
 
 ## How it works
@@ -18,10 +19,11 @@ v2 is built for the Crown Web staging workflow:
                                ↓
    client enters review mode → every [data-review] element gets a
    border + status badge + approve/comment buttons; a docked panel
-   tracks progress per page → "Send Review" emails you the summary
+   lists every page + tracks progress; the client can also "Drop a pin"
+   anywhere → "Send Review" emails you the sections + pinned comments
 ```
 
-Section status (approved / commented) and review-mode on/off persist in `localStorage`, so the client can review across multiple visits during the window.
+Section status (approved / commented), pins, visited pages, and review-mode on/off all persist in `localStorage`, so the client can review across multiple visits during the window.
 
 ## Install
 
@@ -39,13 +41,18 @@ Peer deps: `next >= 14`, `react >= 18`, `react-dom >= 18`.
 // src/lib/actions/review.ts
 'use server';
 
-import { formatReviewEmail, type ReviewSubmissionData } from '@crownwebdesign/site-review/server';
+import {
+  formatReviewEmail,
+  type ReviewSubmissionData,
+  type Pin,
+} from '@crownwebdesign/site-review/server';
 
 export async function submitReview(
   data: ReviewSubmissionData[],
-  additionalComments?: string
+  additionalComments?: string,
+  pins?: Pin[]
 ): Promise<{ success: boolean; message: string }> {
-  const html = formatReviewEmail(data, 'Client Site', additionalComments);
+  const html = formatReviewEmail(data, 'Client Site', additionalComments, pins);
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -79,6 +86,11 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
       enabled={process.env.NEXT_PUBLIC_REVIEW_ENABLED === 'true'}
       token={process.env.NEXT_PUBLIC_REVIEW_TOKEN}
       siteName="Client Site"
+      pages={[
+        { path: '/', name: 'Home' },
+        { path: '/about', name: 'About' },
+        { path: '/contact', name: 'Contact' },
+      ]}
       onSubmit={submitReview}
     >
       {children}
@@ -88,6 +100,8 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
 ```
 
 Nothing renders unless the host is allowed **and** the feature is switched on, so this is safe to leave mounted in production.
+
+**`pages`** (optional) lets the panel show the client *every* page to review up front — unvisited pages appear as "not visited", and their sections populate once the client goes there. It's just `{ path, name }` per page (no sections — those still come from `data-review`), and it's additive: a visited page you didn't list still shows up. Omit it to fall back to listing only pages the client has visited.
 
 ### 3. Mark reviewable sections
 
@@ -123,7 +137,8 @@ Two independent switches — either one (combined with an allowed host) activate
 | `enabled` | `boolean` | `false` | Your env flag. Feature still requires an allowed host. |
 | `token` | `string` | — | Shared secret for the `?review=` magic link. |
 | `siteName` | `string` | `'this website'` | Shown in the panel + email. |
-| `onSubmit` | `(data, additionalComments?) => Promise<{success,message}>` | — | Your server action. |
+| `pages` | `{ path, name }[]` | — | Pages to show in the panel up front (see above). |
+| `onSubmit` | `(data, additionalComments?, pins?) => Promise<{success,message}>` | — | Your server action. The 3rd arg is the pinned comments. |
 | `options` | `ReviewOptions` | see below | Tunables. |
 
 ### `ReviewOptions`
@@ -143,6 +158,8 @@ Each submitted section: `{ id, page, name, status, comment, deviceType?, url?, v
 ## Versioning
 
 Semver. v2 is a breaking redesign (no more `ReviewSection`/`ReviewControls`/`SectionDef` config — use `data-review` attributes). Pin with `npm install @crownwebdesign/site-review@^2`.
+
+- **2.1.0** — adds the `pages` prop (up-front page list in the panel) and pin-a-comment, plus always-visible approve/comment buttons, approve-as-toggle, expandable pages, and a fix for the comment box resetting while typing. Non-breaking; the `onSubmit` 3rd arg (`pins`) is optional.
 
 ## Working on this package
 

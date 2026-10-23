@@ -5,4 +5,4 @@
  *   import { formatReviewEmail, type ReviewSubmissionData } from '@crownwebdesign/site-review/server'
  */
 export { formatReviewEmail } from './formatEmail';
-export type { ReviewSubmissionData, SectionStatus } from './types';
+export type { ReviewSubmissionData, SectionStatus, Pin } from './types';

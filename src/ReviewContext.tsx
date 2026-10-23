@@ -9,15 +9,24 @@ import React, {
   useCallback,
   useMemo,
 } from 'react';
+import { usePathname } from 'next/navigation';
 import type {
   SectionState,
   SectionStatus,
   ReviewSubmissionData,
   ReviewOptions,
+  ReviewPage,
+  Pin,
 } from './types';
 import { ReviewUI } from './ReviewUI';
 
-export type { SectionState, SectionStatus, ReviewSubmissionData, ReviewOptions };
+export type { SectionState, SectionStatus, ReviewSubmissionData, ReviewOptions, ReviewPage, Pin };
+
+/** Page key from a pathname — mirrors the overlay's derivation ('/' → 'home'). */
+export function pageKeyFromPath(pathname: string | null): string {
+  if (!pathname || pathname === '/') return 'home';
+  return pathname.replace(/^\//, '').split('/')[0] || 'home';
+}
 
 /** A section registering itself from a discovered `data-review` element. */
 export interface SectionRegistration {
@@ -37,17 +46,27 @@ interface ReviewContextValue {
   registerSection: (reg: SectionRegistration) => void;
   approveSection: (id: string) => void;
   addComment: (id: string, comment: string) => void;
+  unreviewSection: (id: string) => void;
   activeModalId: string | null;
   openModal: (id: string) => void;
   closeModal: () => void;
   getPageProgress: (page: string) => { reviewed: number; total: number };
   getTotalProgress: () => { reviewed: number; total: number };
+  declaredPages: ReviewPage[];
+  visitedPages: string[];
+  pins: Pin[];
+  pinMode: boolean;
+  togglePinMode: () => void;
+  addPin: (pin: Pin) => void;
+  updatePin: (id: string, note: string) => void;
+  removePin: (id: string) => void;
   isComplete: boolean;
   requireComplete: boolean;
   siteName: string;
   submit: (
     data: ReviewSubmissionData[],
-    additionalComments?: string
+    additionalComments?: string,
+    pins?: Pin[]
   ) => Promise<{ success: boolean; message: string }>;
 }
 
@@ -55,13 +74,19 @@ const ReviewContext = createContext<ReviewContextValue | null>(null);
 
 type Action =
   | { type: 'LOAD'; sections: Record<string, SectionState> }
+  | { type: 'LOAD_PINS'; pins: Pin[] }
   | { type: 'REGISTER'; reg: SectionRegistration }
   | { type: 'APPROVE'; id: string }
   | { type: 'COMMENT'; id: string; comment: string }
+  | { type: 'UNREVIEW'; id: string }
+  | { type: 'ADD_PIN'; pin: Pin }
+  | { type: 'UPDATE_PIN'; id: string; note: string }
+  | { type: 'REMOVE_PIN'; id: string }
   | { type: 'SET_MODAL'; id: string | null };
 
 interface State {
   sections: Record<string, SectionState>;
+  pins: Pin[];
   activeModalId: string | null;
 }
 
@@ -71,6 +96,16 @@ function reducer(state: State, action: Action): State {
       return { ...state, sections: action.sections };
     case 'REGISTER': {
       const existing = state.sections[action.reg.id];
+      // Idempotent: if this section is already known with identical labels,
+      // change nothing (stable object identity stops re-render/persist churn).
+      if (
+        existing &&
+        existing.name === action.reg.name &&
+        existing.page === action.reg.page &&
+        existing.pageName === action.reg.pageName
+      ) {
+        return state;
+      }
       // Preserve status/comment across navigations; refresh labels.
       return {
         ...state,
@@ -104,6 +139,29 @@ function reducer(state: State, action: Action): State {
           },
         },
       };
+    case 'UNREVIEW':
+      return {
+        ...state,
+        sections: {
+          ...state.sections,
+          [action.id]: {
+            ...state.sections[action.id],
+            status: 'unreviewed',
+            comment: '',
+          },
+        },
+      };
+    case 'LOAD_PINS':
+      return { ...state, pins: action.pins };
+    case 'ADD_PIN':
+      return { ...state, pins: [...state.pins, action.pin] };
+    case 'UPDATE_PIN':
+      return {
+        ...state,
+        pins: state.pins.map((p) => (p.id === action.id ? { ...p, note: action.note } : p)),
+      };
+    case 'REMOVE_PIN':
+      return { ...state, pins: state.pins.filter((p) => p.id !== action.id) };
     case 'SET_MODAL':
       return { ...state, activeModalId: action.id };
     default:
@@ -127,10 +185,18 @@ export interface ReviewProviderProps {
   token?: string;
   /** Project name shown in the panel and summary email. */
   siteName?: string;
+  /**
+   * Pages to advertise in the panel up front (so the client sees everything to
+   * review before visiting). Just `{ path, name }` each — sections are still
+   * discovered from `data-review` on visit. Pages visited but not listed here
+   * are added automatically.
+   */
+  pages?: ReviewPage[];
   /** Server action that emails the review. See the package `/server` export. */
   onSubmit: (
     data: ReviewSubmissionData[],
-    additionalComments?: string
+    additionalComments?: string,
+    pins?: Pin[]
   ) => Promise<{ success: boolean; message: string }>;
   options?: ReviewOptions;
 }
@@ -152,6 +218,7 @@ export function ReviewProvider({
   enabled = false,
   token,
   siteName = 'this website',
+  pages,
   onSubmit,
   options,
 }: ReviewProviderProps) {
@@ -163,18 +230,26 @@ export function ReviewProvider({
     requireComplete = false,
   } = options ?? {};
 
+  const pathname = usePathname();
+  const declaredPages = useMemo(() => pages ?? [], [pages]);
+
   const [mounted, setMounted] = useState(false);
   const [hostAllowed, setHostAllowed] = useState(false);
   const [tokenUnlocked, setTokenUnlocked] = useState(false);
   const [reviewMode, setReviewMode] = useState(false);
+  const [pinMode, setPinMode] = useState(false);
+  const [visitedPages, setVisitedPages] = useState<string[]>([]);
 
   const [state, dispatch] = useReducer(reducer, {
     sections: {},
+    pins: [],
     activeModalId: null,
   });
 
   const unlockKey = `${storageKey}:unlocked`;
   const modeKey = `${storageKey}:mode`;
+  const visitedKey = `${storageKey}:visited`;
+  const pinsKey = `${storageKey}:pins`;
 
   // Mount: resolve host, process the magic-link token, restore persisted flags + data.
   useEffect(() => {
@@ -207,6 +282,12 @@ export function ReviewProvider({
         const stored = JSON.parse(raw) as Record<string, SectionState>;
         dispatch({ type: 'LOAD', sections: stored });
       }
+
+      const visitedRaw = localStorage.getItem(visitedKey);
+      if (visitedRaw) setVisitedPages(JSON.parse(visitedRaw) as string[]);
+
+      const pinsRaw = localStorage.getItem(pinsKey);
+      if (pinsRaw) dispatch({ type: 'LOAD_PINS', pins: JSON.parse(pinsRaw) as Pin[] });
     } catch {
       // Ignore storage/URL errors — feature simply stays locked.
     }
@@ -214,6 +295,22 @@ export function ReviewProvider({
   }, []);
 
   const active = mounted && hostAllowed && (enabled || tokenUnlocked);
+
+  // Mark the current page visited (so the panel can show its discovered count).
+  useEffect(() => {
+    if (!active) return;
+    const key = pageKeyFromPath(pathname);
+    setVisitedPages((prev) => {
+      if (prev.includes(key)) return prev;
+      const next = [...prev, key];
+      try {
+        localStorage.setItem(visitedKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, [active, pathname, visitedKey]);
 
   // Persist section data whenever it changes.
   useEffect(() => {
@@ -224,6 +321,16 @@ export function ReviewProvider({
       // ignore
     }
   }, [state.sections, storageKey, mounted]);
+
+  // Persist pins whenever they change.
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      localStorage.setItem(pinsKey, JSON.stringify(state.pins));
+    } catch {
+      // ignore
+    }
+  }, [state.pins, pinsKey, mounted]);
 
   const toggleReviewMode = useCallback(() => {
     setReviewMode((prev) => {
@@ -237,6 +344,14 @@ export function ReviewProvider({
     });
   }, [modeKey]);
 
+  const togglePinMode = useCallback(() => setPinMode((p) => !p), []);
+  const addPin = useCallback((pin: Pin) => dispatch({ type: 'ADD_PIN', pin }), []);
+  const updatePin = useCallback(
+    (id: string, note: string) => dispatch({ type: 'UPDATE_PIN', id, note }),
+    []
+  );
+  const removePin = useCallback((id: string) => dispatch({ type: 'REMOVE_PIN', id }), []);
+
   const registerSection = useCallback(
     (reg: SectionRegistration) => dispatch({ type: 'REGISTER', reg }),
     []
@@ -246,6 +361,7 @@ export function ReviewProvider({
     (id: string, comment: string) => dispatch({ type: 'COMMENT', id, comment }),
     []
   );
+  const unreviewSection = useCallback((id: string) => dispatch({ type: 'UNREVIEW', id }), []);
   const openModal = useCallback((id: string) => dispatch({ type: 'SET_MODAL', id }), []);
   const closeModal = useCallback(() => dispatch({ type: 'SET_MODAL', id: null }), []);
 
@@ -279,11 +395,20 @@ export function ReviewProvider({
     registerSection,
     approveSection,
     addComment,
+    unreviewSection,
     activeModalId: state.activeModalId,
     openModal,
     closeModal,
     getPageProgress,
     getTotalProgress,
+    declaredPages,
+    visitedPages,
+    pins: state.pins,
+    pinMode,
+    togglePinMode,
+    addPin,
+    updatePin,
+    removePin,
     isComplete,
     requireComplete,
     siteName,

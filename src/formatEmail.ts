@@ -1,4 +1,4 @@
-import type { ReviewSubmissionData } from './types';
+import type { ReviewSubmissionData, Pin } from './types';
 
 /**
  * Generates an HTML email body from review submission data.
@@ -12,7 +12,8 @@ import type { ReviewSubmissionData } from './types';
 export function formatReviewEmail(
   data: ReviewSubmissionData[],
   siteName = 'Website Review',
-  additionalComments?: string
+  additionalComments?: string,
+  pins?: Pin[]
 ): string {
   const byPage = data.reduce(
     (acc, s) => {
@@ -81,6 +82,31 @@ export function formatReviewEmail(
   const viewport = data[0]?.viewport;
   const context = [deviceType, viewport].filter(Boolean).join(' · ');
   const extra = additionalComments?.trim();
+
+  const pinRows = (pins ?? [])
+    .filter((p) => p.note?.trim())
+    .map((p) => {
+      const where = [p.pageName, p.sectionName ?? '(no section)'].filter(Boolean).join(' › ');
+      const target = p.target ? ` · ${p.target}` : '';
+      return `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#475569;white-space:nowrap;">${where}<span style="color:#94a3b8;">${target}</span></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;"><em style="color:#64748b;">"${p.note.trim()}"</em></td>
+      </tr>`;
+    })
+    .join('');
+  const pinsBlock = pinRows
+    ? `<div style="margin-top:8px;margin-bottom:8px;">
+        <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin:24px 0 12px;">Pinned Comments</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <thead><tr style="background:#f8fafc;">
+            <th style="padding:8px 12px;text-align:left;color:#64748b;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;width:40%;">Where</th>
+            <th style="padding:8px 12px;text-align:left;color:#64748b;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;">Comment</th>
+          </tr></thead>
+          <tbody>${pinRows}</tbody>
+        </table>
+      </div>`
+    : '';
   const submittedAt = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -128,6 +154,8 @@ export function formatReviewEmail(
   </div>`
       : ''
   }
+
+  ${pinsBlock}
 
   <div style="margin-top:24px;padding:14px;background:#f8fafc;border-radius:8px;font-size:12px;color:#94a3b8;text-align:center;">
     Review submitted on ${submittedAt}

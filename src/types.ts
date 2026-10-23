@@ -31,6 +31,32 @@ export interface ReviewSubmissionData {
   viewport?: string;
 }
 
+/** A freeform pin the reviewer drops anywhere on the page. */
+export interface Pin {
+  id: string;
+  /** Page key the pin was placed on (e.g. 'home', 'about'). */
+  page: string;
+  /** Human-readable page label. */
+  pageName: string;
+  /** Document coordinates (px) where the pin was dropped. */
+  x: number;
+  y: number;
+  /** The reviewable section the pin landed inside, if any. */
+  sectionId?: string;
+  sectionName?: string;
+  /** Short descriptor of the clicked element, e.g. "button · Book Now". */
+  target?: string;
+  note: string;
+}
+
+/** A page advertised in the panel up front, so the client sees everything to review. */
+export interface ReviewPage {
+  /** Route path, e.g. '/' or '/about'. */
+  path: string;
+  /** Display name shown in the panel, e.g. 'Home' or 'About'. */
+  name: string;
+}
+
 /** Tunable behavior — all optional with sensible defaults. */
 export interface ReviewOptions {
   /**

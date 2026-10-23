@@ -41,13 +41,14 @@ function slug(s: string): string {
  *   data-review-page-name → page label (optional; defaults to humanized page key)
  */
 export function ReviewOverlay() {
-  const { sections, registerSection, approveSection, openModal } = useReview();
+  const { sections, registerSection, approveSection, unreviewSection, openModal } = useReview();
   const pathname = usePathname();
 
   const [items, setItems] = useState<Discovered[]>([]);
   const [rects, setRects] = useState<Record<string, DOMRect>>({});
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const frame = useRef<number | null>(null);
+  const sigRef = useRef('');
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scan = useCallback(() => {
     const page = pageFromPath(pathname);
@@ -61,7 +62,13 @@ export function ReviewOverlay() {
       return { id, name, page: pageKey, pageName, el };
     });
     found.forEach(({ el: _el, ...reg }) => registerSection(reg));
-    setItems(found);
+    // Only replace the items array when the discovered set actually changes,
+    // so routine DOM mutations don't churn the measure effect.
+    const sig = found.map((f) => `${f.id}@${f.page}`).sort().join('|');
+    if (sig !== sigRef.current) {
+      sigRef.current = sig;
+      setItems(found);
+    }
   }, [pathname, registerSection]);
 
   const measure = useCallback(() => {
@@ -84,11 +91,27 @@ export function ReviewOverlay() {
   }, [items]);
 
   // Re-scan on navigation, and when the DOM mutates (client-rendered content).
+  // Debounced, and ignores mutations from the review UI's own DOM so it can't
+  // trigger itself into a loop.
   useEffect(() => {
     scan();
-    const mo = new MutationObserver(() => scan());
+    const isOwnUI = (n: Node | null): boolean => {
+      const el = n instanceof Element ? n : n?.parentElement ?? null;
+      return !!el?.closest('[data-review-overlay-root],[data-sr-ui]');
+    };
+    const mo = new MutationObserver((records) => {
+      const relevant = records.some(
+        (r) => !isOwnUI(r.target) && !isOwnUI(r.addedNodes[0] ?? null)
+      );
+      if (!relevant) return;
+      if (debounce.current) clearTimeout(debounce.current);
+      debounce.current = setTimeout(scan, 150);
+    });
     mo.observe(document.body, { childList: true, subtree: true });
-    return () => mo.disconnect();
+    return () => {
+      mo.disconnect();
+      if (debounce.current) clearTimeout(debounce.current);
+    };
   }, [scan]);
 
   // Keep overlay boxes aligned with their elements.
@@ -125,12 +148,10 @@ export function ReviewOverlay() {
             : status === 'commented'
               ? 'Has Feedback'
               : 'Not Reviewed';
-        const hovered = hoveredId === it.id;
+        const approved = status === 'approved';
         return (
           <div
             key={it.id}
-            onMouseEnter={() => setHoveredId(it.id)}
-            onMouseLeave={() => setHoveredId((cur) => (cur === it.id ? null : cur))}
             style={{
               position: 'fixed',
               top: rect.top,
@@ -182,7 +203,7 @@ export function ReviewOverlay() {
               {statusText}
             </span>
 
-            {/* Action buttons — on hover */}
+            {/* Action buttons — always visible in review mode */}
             <div
               style={{
                 position: 'absolute',
@@ -190,17 +211,16 @@ export function ReviewOverlay() {
                 right: 6,
                 display: 'flex',
                 gap: 6,
-                opacity: hovered ? 1 : 0,
-                pointerEvents: hovered ? 'auto' : 'none',
-                transition: 'opacity 150ms',
+                pointerEvents: 'auto',
               }}
             >
               <button
                 type="button"
-                title="Mark as approved"
-                aria-label="Mark as approved"
-                onClick={() => approveSection(it.id)}
-                style={roundBtn('#16a34a')}
+                title={approved ? 'Approved — click to undo' : 'Mark as approved'}
+                aria-label={approved ? 'Undo approval' : 'Mark as approved'}
+                aria-pressed={approved}
+                onClick={() => (approved ? unreviewSection(it.id) : approveSection(it.id))}
+                style={roundBtn(approved ? '#16a34a' : '#ffffff', approved ? '#ffffff' : '#16a34a')}
               >
                 ✓
               </button>
@@ -225,16 +245,17 @@ export function ReviewOverlay() {
 const UI_FONT =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
-function roundBtn(bg: string): React.CSSProperties {
+function roundBtn(bg: string, fg = '#fff'): React.CSSProperties {
   return {
     width: 32,
     height: 32,
     borderRadius: 9999,
-    border: 'none',
+    border: bg === '#ffffff' ? `2px solid ${fg}` : 'none',
     cursor: 'pointer',
-    color: '#fff',
+    color: fg,
     background: bg,
     fontSize: 15,
+    fontWeight: 700,
     lineHeight: 1,
     boxShadow: '0 4px 10px rgba(0,0,0,0.25)',
     pointerEvents: 'auto',

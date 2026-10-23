@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { usePathname } from 'next/navigation';
-import { useReview } from './ReviewContext';
-import type { ReviewSubmissionData } from './types';
+import { useReview, pageKeyFromPath } from './ReviewContext';
+import type { ReviewSubmissionData, SectionState } from './types';
 
 const UI_FONT =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -23,10 +23,16 @@ export function ReviewPanel() {
     sections,
     activeModalId,
     addComment,
+    unreviewSection,
     closeModal,
     toggleReviewMode,
     getPageProgress,
     getTotalProgress,
+    declaredPages,
+    visitedPages,
+    pins,
+    pinMode,
+    togglePinMode,
     isComplete,
     requireComplete,
     siteName,
@@ -47,13 +53,50 @@ export function ReviewPanel() {
     [sections]
   );
 
+  const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set());
+  const togglePage = (key: string) =>
+    setExpandedPages((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  // Full page list for the panel: declared pages shown up front, merged with any
+  // pages discovered by visiting. Sections populate per page once visited.
+  const panelPages = useMemo(() => {
+    const map = new Map<
+      string,
+      { key: string; name: string; sections: SectionState[]; visited: boolean }
+    >();
+    for (const p of declaredPages) {
+      const key = pageKeyFromPath(p.path);
+      map.set(key, { key, name: p.name, sections: [], visited: visitedPages.includes(key) });
+    }
+    for (const s of Object.values(sections)) {
+      let entry = map.get(s.page);
+      if (!entry) {
+        entry = { key: s.page, name: s.pageName, sections: [], visited: visitedPages.includes(s.page) };
+        map.set(s.page, entry);
+      }
+      entry.sections.push(s);
+    }
+    return [...map.values()];
+  }, [declaredPages, visitedPages, sections]);
+
   const activeSection = activeModalId ? sections[activeModalId] : null;
   const total = getTotalProgress();
   const canSubmit = !requireComplete || isComplete;
 
+  // Always read the freshest sections without making the comment-load effect
+  // depend on `sections` (which changes on discovery and would wipe typing).
+  const sectionsRef = useRef(sections);
+  sectionsRef.current = sections;
+
+  // Load the existing comment only when the modal opens — NOT on every sections
+  // change, otherwise each keystroke's re-render/re-scan resets the textarea.
   useEffect(() => {
-    setComment(activeModalId ? (sections[activeModalId]?.comment ?? '') : '');
-  }, [activeModalId, sections]);
+    setComment(activeModalId ? (sectionsRef.current[activeModalId]?.comment ?? '') : '');
+  }, [activeModalId]);
 
   const handleSaveComment = () => {
     if (!activeModalId) return;
@@ -81,7 +124,7 @@ export function ReviewPanel() {
           url,
           viewport,
         }));
-        const result = await submit(data, additionalComments.trim() || undefined);
+        const result = await submit(data, additionalComments.trim() || undefined, pins);
         setStatus(result.success ? 'success' : 'error');
       } catch {
         setStatus('error');
@@ -90,7 +133,7 @@ export function ReviewPanel() {
   };
 
   return (
-    <>
+    <div data-sr-ui style={{ display: 'contents' }}>
       {/* ── Comment modal ── */}
       {activeModalId && activeSection && (
         <div style={overlayBackdrop}>
@@ -114,6 +157,19 @@ export function ReviewPanel() {
               />
             </div>
             <div style={{ ...modalFooter, gap: 12 }}>
+              {activeSection && activeSection.status !== 'unreviewed' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeModalId) unreviewSection(activeModalId);
+                    closeModal();
+                  }}
+                  style={{ ...btnGhost, flex: '0 0 auto', color: '#b91c1c', borderColor: '#fecaca' }}
+                  title="Clear this section's status and feedback"
+                >
+                  Remove
+                </button>
+              )}
               <button type="button" onClick={closeModal} style={btnGhost}>
                 Cancel
               </button>
@@ -303,53 +359,103 @@ export function ReviewPanel() {
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ overflowY: 'auto', padding: 12, flex: 1 }}>
               <p style={panelSectionLabel}>Progress by Page</p>
-              {allPages.length === 0 && (
+              {panelPages.length === 0 && (
                 <p style={{ fontSize: 12, color: '#9ca3af', padding: '4px 8px', margin: 0 }}>
-                  Scroll through the pages — sections appear as you visit them.
+                  Browse the site — sections appear as you visit each page.
                 </p>
               )}
-              {allPages.map((page) => {
-                const { reviewed, total: pageTotal } = getPageProgress(page);
+              {panelPages.map((pg) => {
+                const reviewed = pg.sections.filter((s) => s.status !== 'unreviewed').length;
+                const pageTotal = pg.sections.length;
                 const pct = pageTotal > 0 ? (reviewed / pageTotal) * 100 : 0;
-                const done = reviewed === pageTotal && pageTotal > 0;
-                const current = pageFromPath(pathname) === page;
-                const pageName =
-                  Object.values(sections).find((s) => s.page === page)?.pageName ?? page;
+                const done = pageTotal > 0 && reviewed === pageTotal;
+                const current = pageKeyFromPath(pathname) === pg.key;
+                const expanded = expandedPages.has(pg.key);
+                const hasSections = pageTotal > 0;
                 return (
                   <div
-                    key={page}
+                    key={pg.key}
                     style={{
                       padding: '6px 8px',
                       borderRadius: 8,
                       background: current ? '#eff6ff' : 'transparent',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 500, color: current ? '#1d4ed8' : '#374151' }}>
-                        {current ? '› ' : ''}
-                        {pageName}
-                      </span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: done ? '#16a34a' : '#6b7280' }}>
-                        {reviewed}/{pageTotal}
-                      </span>
-                    </div>
-                    <div style={{ height: 6, borderRadius: 9999, background: '#f1f5f9', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          height: '100%',
-                          width: `${pct}%`,
-                          borderRadius: 9999,
-                          background: done ? '#22c55e' : '#60a5fa',
-                          transition: 'width 300ms',
-                        }}
-                      />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => hasSections && togglePage(pg.key)}
+                      style={{
+                        all: 'unset',
+                        display: 'block',
+                        width: '100%',
+                        cursor: hasSections ? 'pointer' : 'default',
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: current ? '#1d4ed8' : '#374151' }}>
+                          {hasSections ? (expanded ? '▾ ' : '▸ ') : ''}
+                          {current ? '› ' : ''}
+                          {pg.name}
+                        </span>
+                        {hasSections ? (
+                          <span style={{ fontSize: 12, fontWeight: 600, color: done ? '#16a34a' : '#6b7280' }}>
+                            {reviewed}/{pageTotal}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 11, fontWeight: 500, color: '#9ca3af' }}>
+                            {pg.visited ? 'no sections' : 'not visited'}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ height: 6, borderRadius: 9999, background: '#f1f5f9', overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            height: '100%',
+                            width: `${pct}%`,
+                            borderRadius: 9999,
+                            background: done ? '#22c55e' : '#60a5fa',
+                            transition: 'width 300ms',
+                          }}
+                        />
+                      </div>
+                    </button>
+                    {expanded && hasSections && (
+                      <div style={{ marginTop: 6, paddingLeft: 10 }}>
+                        {pg.sections.map((s) => (
+                          <div key={s.id} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, padding: '2px 0' }}>
+                            <span style={{ color: markColor(s.status), fontWeight: 700, width: 12 }}>{mark(s.status)}</span>
+                            <span style={{ color: '#4b5563' }}>{s.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
             <div style={{ borderTop: '1px solid #f1f5f9', padding: 12 }}>
+              <button
+                type="button"
+                onClick={togglePinMode}
+                style={{
+                  width: '100%',
+                  marginBottom: 8,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  border: `1px solid ${pinMode ? '#e11d48' : '#e5e7eb'}`,
+                  background: pinMode ? '#fff1f2' : '#fff',
+                  color: pinMode ? '#e11d48' : '#374151',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {pinMode
+                  ? 'Click the page to place a pin — or cancel'
+                  : `Drop a pin${pins.length ? ` (${pins.length})` : ''}`}
+              </button>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, marginBottom: 8 }}>
                 <span style={{ fontWeight: 500, color: '#374151' }}>Total</span>
                 <span style={{ fontWeight: 700, color: isComplete ? '#16a34a' : '#111827' }}>
@@ -381,13 +487,8 @@ export function ReviewPanel() {
           </div>
         )}
       </div>
-    </>
+    </div>
   );
-}
-
-function pageFromPath(pathname: string | null): string {
-  if (!pathname || pathname === '/') return 'home';
-  return pathname.replace(/^\//, '').split('/')[0] || 'home';
 }
 
 const mark = (s: string) => (s === 'approved' ? '✓' : s === 'commented' ? '✎' : '○');

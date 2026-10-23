@@ -3,6 +3,7 @@
 import { useReview } from './ReviewContext';
 import { ReviewOverlay } from './ReviewOverlay';
 import { ReviewPanel } from './ReviewPanel';
+import { ReviewPins } from './ReviewPins';
 
 /**
  * Internal UI shell, rendered by <ReviewProvider> only when the feature is
@@ -48,6 +49,7 @@ export function ReviewUI() {
   return (
     <>
       <ReviewOverlay />
+      <ReviewPins />
       <ReviewPanel />
     </>
   );
