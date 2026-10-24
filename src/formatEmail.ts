@@ -13,7 +13,8 @@ export function formatReviewEmail(
   data: ReviewSubmissionData[],
   siteName = 'Website Review',
   additionalComments?: string,
-  pins?: Pin[]
+  pins?: Pin[],
+  devView?: { url: string; json: string }
 ): string {
   const byPage = data.reduce(
     (acc, s) => {
@@ -32,14 +33,16 @@ export function formatReviewEmail(
           const color =
             s.status === 'approved'
               ? '#16a34a'
-              : s.status === 'commented'
+              : s.status === 'changes'
                 ? '#d97706'
                 : '#9ca3af';
           const label =
             s.status === 'approved'
-              ? '✓ Approved'
-              : s.status === 'commented'
-                ? '✏ Has Feedback'
+              ? s.comment?.trim()
+                ? '✓ Approved (w/ note)'
+                : '✓ Approved'
+              : s.status === 'changes'
+                ? '✏ Changes requested'
                 : '○ Not Reviewed';
           const commentCell =
             s.comment?.trim()
@@ -77,7 +80,7 @@ export function formatReviewEmail(
   const total = data.length;
   const reviewed = data.filter((s) => s.status !== 'unreviewed').length;
   const approved = data.filter((s) => s.status === 'approved').length;
-  const commented = data.filter((s) => s.status === 'commented').length;
+  const changesCount = data.filter((s) => s.status === 'changes').length;
   const deviceType = data[0]?.deviceType;
   const viewport = data[0]?.viewport;
   const context = [deviceType, viewport].filter(Boolean).join(' · ');
@@ -107,6 +110,19 @@ export function formatReviewEmail(
         </table>
       </div>`
     : '';
+
+  const devBlock = devView
+    ? `<div style="margin-top:24px;padding:18px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;">
+        <h3 style="font-size:14px;font-weight:700;color:#3730a3;margin:0 0 6px;">Developer view</h3>
+        <p style="margin:0 0 12px;color:#4338ca;font-size:13px;">Open this on the staging site to see the reviewer's exact state (read-only), with their approvals, change requests, and pins in place.</p>
+        <a href="${devView.url}" style="display:inline-block;background:#4f46e5;color:#fff;font-size:14px;font-weight:600;text-decoration:none;padding:10px 18px;border-radius:8px;">Open developer view →</a>
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer;color:#6366f1;font-size:12px;">Raw snapshot (fallback)</summary>
+          <pre style="white-space:pre-wrap;word-break:break-all;background:#fff;border:1px solid #e0e7ff;border-radius:6px;padding:10px;font-size:11px;color:#475569;margin-top:8px;">${devView.json.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c] as string)}</pre>
+        </details>
+      </div>`
+    : '';
+
   const submittedAt = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -133,8 +149,8 @@ export function formatReviewEmail(
       <div style="font-size:12px;color:#15803d;font-weight:600;margin-top:2px;">Approved</div>
     </div>
     <div style="flex:1;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px;text-align:center;">
-      <div style="font-size:28px;font-weight:800;color:#d97706;">${commented}</div>
-      <div style="font-size:12px;color:#b45309;font-weight:600;margin-top:2px;">With Feedback</div>
+      <div style="font-size:28px;font-weight:800;color:#d97706;">${changesCount}</div>
+      <div style="font-size:12px;color:#b45309;font-weight:600;margin-top:2px;">Changes</div>
     </div>
     <div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;text-align:center;">
       <div style="font-size:28px;font-weight:800;color:#0f172a;">${reviewed}/${total}</div>
@@ -156,6 +172,8 @@ export function formatReviewEmail(
   }
 
   ${pinsBlock}
+
+  ${devBlock}
 
   <div style="margin-top:24px;padding:14px;background:#f8fafc;border-radius:8px;font-size:12px;color:#94a3b8;text-align:center;">
     Review submitted on ${submittedAt}

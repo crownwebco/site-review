@@ -9,6 +9,8 @@ export type {
   ReviewSubmissionData,
   ReviewOptions,
   ReviewPage,
+  Pin,
+  ReviewSnapshot,
 } from './types';
 
 // Note: for the server action helper, import from '@crownwebdesign/site-review/server':

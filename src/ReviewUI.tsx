@@ -4,6 +4,7 @@ import { useReview } from './ReviewContext';
 import { ReviewOverlay } from './ReviewOverlay';
 import { ReviewPanel } from './ReviewPanel';
 import { ReviewPins } from './ReviewPins';
+import { ReviewDashboard } from './ReviewDashboard';
 
 /**
  * Internal UI shell, rendered by <ReviewProvider> only when the feature is
@@ -12,7 +13,18 @@ import { ReviewPins } from './ReviewPins';
  * (#11) build on top of this.
  */
 export function ReviewUI() {
-  const { reviewMode, toggleReviewMode } = useReview();
+  const { reviewMode, toggleReviewMode, devMode } = useReview();
+
+  // Read-only developer view: overlays (no edit buttons) + pins + dashboard.
+  if (devMode) {
+    return (
+      <>
+        <ReviewOverlay />
+        <ReviewPins />
+        <ReviewDashboard />
+      </>
+    );
+  }
 
   if (!reviewMode) {
     return (

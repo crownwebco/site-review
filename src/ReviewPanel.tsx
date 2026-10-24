@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { usePathname } from 'next/navigation';
+import LZString from 'lz-string';
 import { useReview, pageKeyFromPath } from './ReviewContext';
-import type { ReviewSubmissionData, SectionState } from './types';
+import type { ReviewSubmissionData, SectionState, ReviewSnapshot } from './types';
 
 const UI_FONT =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -22,7 +23,7 @@ export function ReviewPanel() {
   const {
     sections,
     activeModalId,
-    addComment,
+    saveFeedback,
     unreviewSection,
     closeModal,
     toggleReviewMode,
@@ -98,9 +99,9 @@ export function ReviewPanel() {
     setComment(activeModalId ? (sectionsRef.current[activeModalId]?.comment ?? '') : '');
   }, [activeModalId]);
 
-  const handleSaveComment = () => {
+  const handleSaveFeedback = (verdict: 'approved' | 'changes') => {
     if (!activeModalId) return;
-    addComment(activeModalId, comment.trim() || ' ');
+    saveFeedback(activeModalId, verdict, comment.trim());
     closeModal();
   };
 
@@ -124,7 +125,23 @@ export function ReviewPanel() {
           url,
           viewport,
         }));
-        const result = await submit(data, additionalComments.trim() || undefined, pins);
+        // Full-state snapshot → compressed into a developer deep link (URL
+        // fragment, so it isn't sent to the server) + raw JSON fallback.
+        const snapshot: ReviewSnapshot = {
+          v: 1,
+          siteName,
+          submittedAt: new Date().toISOString(),
+          sections: Object.values(sections),
+          pins,
+        };
+        const json = JSON.stringify(snapshot);
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const devUrl = `${origin}/#review=${LZString.compressToEncodedURIComponent(json)}&role=dev`;
+
+        const result = await submit(data, additionalComments.trim() || undefined, pins, {
+          url: devUrl,
+          json,
+        });
         setStatus(result.success ? 'success' : 'error');
       } catch {
         setStatus('error');
@@ -156,7 +173,7 @@ export function ReviewPanel() {
                 style={textarea}
               />
             </div>
-            <div style={{ ...modalFooter, gap: 12 }}>
+            <div style={{ ...modalFooter, gap: 8, flexWrap: 'wrap' }}>
               {activeSection && activeSection.status !== 'unreviewed' && (
                 <button
                   type="button"
@@ -165,21 +182,29 @@ export function ReviewPanel() {
                     closeModal();
                   }}
                   style={{ ...btnGhost, flex: '0 0 auto', color: '#b91c1c', borderColor: '#fecaca' }}
-                  title="Clear this section's status and feedback"
+                  title="Clear this section's verdict and note"
                 >
                   Remove
                 </button>
               )}
-              <button type="button" onClick={closeModal} style={btnGhost}>
+              <button type="button" onClick={closeModal} style={{ ...btnGhost, flex: '0 0 auto' }}>
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={handleSaveComment}
-                disabled={!comment.trim()}
-                style={{ ...btnSolid('#d97706'), opacity: comment.trim() ? 1 : 0.5 }}
+                onClick={() => handleSaveFeedback('changes')}
+                style={btnSolid('#d97706')}
+                title="Mark this section as needing changes"
               >
-                Save Feedback
+                Request changes
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveFeedback('approved')}
+                style={btnSolid('#16a34a')}
+                title="Approve this section (optionally with the note above)"
+              >
+                {comment.trim() ? 'Approve with note' : 'Approve'}
               </button>
             </div>
           </div>
@@ -491,9 +516,9 @@ export function ReviewPanel() {
   );
 }
 
-const mark = (s: string) => (s === 'approved' ? '✓' : s === 'commented' ? '✎' : '○');
+const mark = (s: string) => (s === 'approved' ? '✓' : s === 'changes' ? '✎' : '○');
 const markColor = (s: string) =>
-  s === 'approved' ? '#16a34a' : s === 'commented' ? '#d97706' : '#d1d5db';
+  s === 'approved' ? '#16a34a' : s === 'changes' ? '#d97706' : '#d1d5db';
 
 // ── Inline style objects (self-contained — no consumer Tailwind/CSS needed) ──
 const overlayBackdrop: React.CSSProperties = {

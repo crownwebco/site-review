@@ -41,7 +41,8 @@ function slug(s: string): string {
  *   data-review-page-name → page label (optional; defaults to humanized page key)
  */
 export function ReviewOverlay() {
-  const { sections, registerSection, approveSection, unreviewSection, openModal } = useReview();
+  const { sections, registerSection, approveSection, unreviewSection, openModal, devMode } =
+    useReview();
   const pathname = usePathname();
 
   const [items, setItems] = useState<Discovered[]>([]);
@@ -139,14 +140,18 @@ export function ReviewOverlay() {
       {items.map((it) => {
         const rect = rects[it.id];
         if (!rect) return null;
-        const status = sections[it.id]?.status ?? 'unreviewed';
+        const section = sections[it.id];
+        const status = section?.status ?? 'unreviewed';
+        const hasNote = !!section?.comment?.trim();
         const color =
-          status === 'approved' ? '#16a34a' : status === 'commented' ? '#d97706' : '#3b82f6';
+          status === 'approved' ? '#16a34a' : status === 'changes' ? '#d97706' : '#3b82f6';
         const statusText =
           status === 'approved'
-            ? 'Approved'
-            : status === 'commented'
-              ? 'Has Feedback'
+            ? hasNote
+              ? 'Approved · note'
+              : 'Approved'
+            : status === 'changes'
+              ? 'Changes requested'
               : 'Not Reviewed';
         const approved = status === 'approved';
         return (
@@ -203,13 +208,13 @@ export function ReviewOverlay() {
               {statusText}
             </span>
 
-            {/* Action buttons — always visible in review mode */}
+            {/* Action buttons — always visible in review mode, hidden in read-only dev view */}
             <div
               style={{
                 position: 'absolute',
                 top: 34,
                 right: 6,
-                display: 'flex',
+                display: devMode ? 'none' : 'flex',
                 gap: 6,
                 pointerEvents: 'auto',
               }}

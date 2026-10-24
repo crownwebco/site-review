@@ -6,10 +6,12 @@ import React, {
   useReducer,
   useEffect,
   useState,
+  useRef,
   useCallback,
   useMemo,
 } from 'react';
 import { usePathname } from 'next/navigation';
+import LZString from 'lz-string';
 import type {
   SectionState,
   SectionStatus,
@@ -17,6 +19,7 @@ import type {
   ReviewOptions,
   ReviewPage,
   Pin,
+  ReviewSnapshot,
 } from './types';
 import { ReviewUI } from './ReviewUI';
 
@@ -44,8 +47,10 @@ interface ReviewContextValue {
   toggleReviewMode: () => void;
   sections: Record<string, SectionState>;
   registerSection: (reg: SectionRegistration) => void;
+  /** Quick-approve; keeps any existing note (so approve-with-feedback survives). */
   approveSection: (id: string) => void;
-  addComment: (id: string, comment: string) => void;
+  /** Set a verdict ('approved' | 'changes') with an accompanying note. */
+  saveFeedback: (id: string, verdict: 'approved' | 'changes', comment: string) => void;
   unreviewSection: (id: string) => void;
   activeModalId: string | null;
   openModal: (id: string) => void;
@@ -56,6 +61,10 @@ interface ReviewContextValue {
   visitedPages: string[];
   pins: Pin[];
   pinMode: boolean;
+  /** Read-only developer view, hydrated from a submitted snapshot link. */
+  devMode: boolean;
+  snapshotMeta: { submittedAt: string } | null;
+  exitDevView: () => void;
   togglePinMode: () => void;
   addPin: (pin: Pin) => void;
   updatePin: (id: string, note: string) => void;
@@ -66,7 +75,8 @@ interface ReviewContextValue {
   submit: (
     data: ReviewSubmissionData[],
     additionalComments?: string,
-    pins?: Pin[]
+    pins?: Pin[],
+    devView?: { url: string; json: string }
   ) => Promise<{ success: boolean; message: string }>;
 }
 
@@ -77,7 +87,7 @@ type Action =
   | { type: 'LOAD_PINS'; pins: Pin[] }
   | { type: 'REGISTER'; reg: SectionRegistration }
   | { type: 'APPROVE'; id: string }
-  | { type: 'COMMENT'; id: string; comment: string }
+  | { type: 'SET_FEEDBACK'; id: string; verdict: 'approved' | 'changes'; comment: string }
   | { type: 'UNREVIEW'; id: string }
   | { type: 'ADD_PIN'; pin: Pin }
   | { type: 'UPDATE_PIN'; id: string; note: string }
@@ -120,21 +130,22 @@ function reducer(state: State, action: Action): State {
       };
     }
     case 'APPROVE':
+      // Keep any existing note so "approve with feedback" isn't wiped.
       return {
         ...state,
         sections: {
           ...state.sections,
-          [action.id]: { ...state.sections[action.id], status: 'approved', comment: '' },
+          [action.id]: { ...state.sections[action.id], status: 'approved' },
         },
       };
-    case 'COMMENT':
+    case 'SET_FEEDBACK':
       return {
         ...state,
         sections: {
           ...state.sections,
           [action.id]: {
             ...state.sections[action.id],
-            status: 'commented',
+            status: action.verdict,
             comment: action.comment,
           },
         },
@@ -196,7 +207,8 @@ export interface ReviewProviderProps {
   onSubmit: (
     data: ReviewSubmissionData[],
     additionalComments?: string,
-    pins?: Pin[]
+    pins?: Pin[],
+    devView?: { url: string; json: string }
   ) => Promise<{ success: boolean; message: string }>;
   options?: ReviewOptions;
 }
@@ -239,6 +251,11 @@ export function ReviewProvider({
   const [reviewMode, setReviewMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [visitedPages, setVisitedPages] = useState<string[]>([]);
+  const [devMode, setDevMode] = useState(false);
+  const [snapshotMeta, setSnapshotMeta] = useState<{ submittedAt: string } | null>(null);
+  // Set synchronously (before dispatching LOAD) so persist effects never write
+  // a hydrated snapshot over the reviewer's own stored data.
+  const devModeRef = useRef(false);
 
   const [state, dispatch] = useReducer(reducer, {
     sections: {},
@@ -288,17 +305,36 @@ export function ReviewProvider({
 
       const pinsRaw = localStorage.getItem(pinsKey);
       if (pinsRaw) dispatch({ type: 'LOAD_PINS', pins: JSON.parse(pinsRaw) as Pin[] });
+
+      // Developer snapshot link: #review=<compressed>&role=dev
+      const hash = window.location.hash.replace(/^#/, '');
+      const hp = new URLSearchParams(hash);
+      if (hp.get('role') === 'dev' && hp.get('review')) {
+        const decoded = LZString.decompressFromEncodedURIComponent(hp.get('review') as string);
+        const snap = decoded ? (JSON.parse(decoded) as ReviewSnapshot) : null;
+        if (snap) {
+          devModeRef.current = true; // guard persistence BEFORE dispatching
+          dispatch({
+            type: 'LOAD',
+            sections: Object.fromEntries((snap.sections ?? []).map((s) => [s.id, s])),
+          });
+          dispatch({ type: 'LOAD_PINS', pins: snap.pins ?? [] });
+          setDevMode(true);
+          setReviewMode(true);
+          setSnapshotMeta({ submittedAt: snap.submittedAt });
+        }
+      }
     } catch {
       // Ignore storage/URL errors — feature simply stays locked.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const active = mounted && hostAllowed && (enabled || tokenUnlocked);
+  const active = mounted && hostAllowed && (enabled || tokenUnlocked || devMode);
 
   // Mark the current page visited (so the panel can show its discovered count).
   useEffect(() => {
-    if (!active) return;
+    if (!active || devMode) return;
     const key = pageKeyFromPath(pathname);
     setVisitedPages((prev) => {
       if (prev.includes(key)) return prev;
@@ -312,9 +348,10 @@ export function ReviewProvider({
     });
   }, [active, pathname, visitedKey]);
 
-  // Persist section data whenever it changes.
+  // Persist section data whenever it changes. Never in dev view — a hydrated
+  // snapshot must not overwrite the reviewer's own stored data.
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || devModeRef.current) return;
     try {
       localStorage.setItem(storageKey, JSON.stringify(state.sections));
     } catch {
@@ -322,9 +359,9 @@ export function ReviewProvider({
     }
   }, [state.sections, storageKey, mounted]);
 
-  // Persist pins whenever they change.
+  // Persist pins whenever they change (skipped in dev view).
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || devModeRef.current) return;
     try {
       localStorage.setItem(pinsKey, JSON.stringify(state.pins));
     } catch {
@@ -345,6 +382,10 @@ export function ReviewProvider({
   }, [modeKey]);
 
   const togglePinMode = useCallback(() => setPinMode((p) => !p), []);
+  const exitDevView = useCallback(() => {
+    // Drop the snapshot hash and reload so normal (persisted) state returns.
+    window.location.replace(window.location.pathname + window.location.search);
+  }, []);
   const addPin = useCallback((pin: Pin) => dispatch({ type: 'ADD_PIN', pin }), []);
   const updatePin = useCallback(
     (id: string, note: string) => dispatch({ type: 'UPDATE_PIN', id, note }),
@@ -357,8 +398,9 @@ export function ReviewProvider({
     []
   );
   const approveSection = useCallback((id: string) => dispatch({ type: 'APPROVE', id }), []);
-  const addComment = useCallback(
-    (id: string, comment: string) => dispatch({ type: 'COMMENT', id, comment }),
+  const saveFeedback = useCallback(
+    (id: string, verdict: 'approved' | 'changes', comment: string) =>
+      dispatch({ type: 'SET_FEEDBACK', id, verdict, comment }),
     []
   );
   const unreviewSection = useCallback((id: string) => dispatch({ type: 'UNREVIEW', id }), []);
@@ -394,7 +436,7 @@ export function ReviewProvider({
     sections: state.sections,
     registerSection,
     approveSection,
-    addComment,
+    saveFeedback,
     unreviewSection,
     activeModalId: state.activeModalId,
     openModal,
@@ -405,6 +447,9 @@ export function ReviewProvider({
     visitedPages,
     pins: state.pins,
     pinMode,
+    devMode,
+    snapshotMeta,
+    exitDevView,
     togglePinMode,
     addPin,
     updatePin,

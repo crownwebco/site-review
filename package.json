@@ -1,6 +1,6 @@
 {
   "name": "@crownwebdesign/site-review",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Drop-in client review mode for Next.js sites — self-contained styles, staging-gated by hostname, zero section config.",
   "type": "module",
   "main": "./dist/index.js",
@@ -18,6 +18,9 @@
   "files": [
     "dist"
   ],
+  "dependencies": {
+    "lz-string": "^1.5.0"
+  },
   "sideEffects": false,
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
@@ -34,6 +37,7 @@
     "react-dom": ">=18.0.0"
   },
   "devDependencies": {
+    "@types/lz-string": "^1.3.34",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "next": "^15.0.0",

@@ -8,6 +8,8 @@ v2 is built for the Crown Web staging workflow:
 - **Dev-triggered, not always-on.** You turn it on for a review period with an env flag and/or a magic link, and turn it off when you're done.
 - **Zero section config.** Mark reviewable blocks with a `data-review="Name"` attribute — no component wrapping, no config array.
 - **Pin anywhere.** Beyond tagged sections, the client can drop a pin on *any* spot; each pin records the section it landed in, the page, and the element clicked.
+- **Verdicts, not just comments.** Each section gets a verdict — **Approve** or **Request changes** — and a note can ride along with either (so "approve with feedback" is first-class).
+- **Developer view.** The submit email includes a one-click link that re-applies the reviewer's exact state (read-only) on the staging site, so you see every verdict and pin in place.
 - **Self-contained styling.** All UI is inline-styled. No Tailwind setup, no CSS import, no `transpilePackages`.
 
 ## How it works
@@ -50,9 +52,15 @@ import {
 export async function submitReview(
   data: ReviewSubmissionData[],
   additionalComments?: string,
-  pins?: Pin[]
+  pins?: Pin[],
+  devView?: { url: string; json: string }
 ): Promise<{ success: boolean; message: string }> {
-  const html = formatReviewEmail(data, 'Client Site', additionalComments, pins);
+  // Fail loudly if the key is missing — don't report a false success.
+  if (!process.env.EMAIL_SERVICE_API_KEY) {
+    return { success: false, message: 'Email is not configured on this environment.' };
+  }
+
+  const html = formatReviewEmail(data, 'Client Site', additionalComments, pins, devView);
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -61,8 +69,8 @@ export async function submitReview(
       Authorization: `Bearer ${process.env.EMAIL_SERVICE_API_KEY}`,
     },
     body: JSON.stringify({
-      from: 'Website Review <review@crownwebdesign.com>',
-      to: ['review@crownwebdesign.com'],
+      from: `Website Review <${process.env.EMAIL_FROM}>`,
+      to: [process.env.REVIEW_EMAIL_TO ?? 'review@crownwebdesign.com'],
       subject: 'Website Review Submitted',
       html,
     }),
@@ -160,6 +168,7 @@ Each submitted section: `{ id, page, name, status, comment, deviceType?, url?, v
 Semver. v2 is a breaking redesign (no more `ReviewSection`/`ReviewControls`/`SectionDef` config — use `data-review` attributes). Pin with `npm install @crownwebdesign/site-review@^2`.
 
 - **2.1.0** — adds the `pages` prop (up-front page list in the panel) and pin-a-comment, plus always-visible approve/comment buttons, approve-as-toggle, expandable pages, and a fix for the comment box resetting while typing. Non-breaking; the `onSubmit` 3rd arg (`pins`) is optional.
+- **2.2.0** — verdict model (`SectionStatus` is now `unreviewed | approved | changes`; a note can accompany an approval = "approve with feedback"); developer snapshot view (submit email carries a `#review=…&role=dev` deep link → read-only dashboard on staging); `onSubmit` gains an optional 4th arg `devView` (`{ url, json }`) to forward into `formatReviewEmail`. If you persisted `'commented'` anywhere, it's now `'changes'`.
 
 ## Working on this package
 

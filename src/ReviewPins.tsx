@@ -29,7 +29,7 @@ function describe(el: Element | null): string | undefined {
  * included in the submitted review.
  */
 export function ReviewPins() {
-  const { pinMode, togglePinMode, pins, addPin, updatePin, removePin, declaredPages } =
+  const { pinMode, togglePinMode, pins, addPin, updatePin, removePin, declaredPages, devMode } =
     useReview();
   const pathname = usePathname();
   const currentKey = pageKeyFromPath(pathname);
@@ -42,7 +42,7 @@ export function ReviewPins() {
 
   // Placement: capture clicks anywhere (except our own UI) while pin mode is on.
   useEffect(() => {
-    if (!pinMode) return;
+    if (!pinMode || devMode) return;
     const onClick = (e: MouseEvent) => {
       const el = e.target as Element | null;
       if (el?.closest('[data-sr-ui],[data-review-overlay-root],[data-sr-pins]')) return;
@@ -75,7 +75,7 @@ export function ReviewPins() {
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKey, true);
     };
-  }, [pinMode, currentKey, pageName, addPin, togglePinMode]);
+  }, [pinMode, devMode, currentKey, pageName, addPin, togglePinMode]);
 
   const pagePins = pins.filter((p) => p.page === currentKey);
 
@@ -85,8 +85,8 @@ export function ReviewPins() {
   };
 
   const closeEditor = () => {
-    // Drop a pin that was never given a note.
-    if (editingId) {
+    // Read-only in dev view — never mutate the hydrated snapshot.
+    if (!devMode && editingId) {
       const pin = pins.find((p) => p.id === editingId);
       if (pin && !pin.note.trim() && !draft.trim()) removePin(editingId);
       else if (pin) updatePin(editingId, draft.trim());
@@ -193,66 +193,97 @@ export function ReviewPins() {
                 {editing.target ? ` · ${editing.target}` : ''}
               </p>
             </div>
-            <div style={{ padding: 20 }}>
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="What about this spot?"
-                rows={4}
-                autoFocus
-                style={{
-                  width: '100%',
-                  resize: 'none',
-                  borderRadius: 8,
-                  border: '1px solid #d1d5db',
-                  padding: 12,
-                  fontSize: 14,
-                  color: '#111827',
-                  boxSizing: 'border-box',
-                  fontFamily: UI_FONT,
-                }}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 12, padding: '0 20px 20px' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  removePin(editing.id);
-                  setEditingId(null);
-                  setDraft('');
-                }}
-                style={{
-                  flex: '0 0 auto',
-                  padding: '8px 16px',
-                  borderRadius: 8,
-                  border: '1px solid #fecaca',
-                  background: '#fff',
-                  color: '#b91c1c',
-                  fontSize: 14,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                }}
-              >
-                Delete
-              </button>
-              <button
-                type="button"
-                onClick={closeEditor}
-                style={{
-                  flex: 1,
-                  padding: '8px 16px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: '#e11d48',
-                  color: '#fff',
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Save
-              </button>
-            </div>
+            {devMode ? (
+              <>
+                <div style={{ padding: 20 }}>
+                  <p style={{ margin: 0, fontSize: 14, color: '#111827', whiteSpace: 'pre-wrap' }}>
+                    {editing.note.trim() || <span style={{ color: '#9ca3af' }}>(no note)</span>}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', padding: '0 20px 20px' }}>
+                  <button
+                    type="button"
+                    onClick={closeEditor}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: '#4f46e5',
+                      color: '#fff',
+                      fontSize: 14,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ padding: 20 }}>
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder="What about this spot?"
+                    rows={4}
+                    autoFocus
+                    style={{
+                      width: '100%',
+                      resize: 'none',
+                      borderRadius: 8,
+                      border: '1px solid #d1d5db',
+                      padding: 12,
+                      fontSize: 14,
+                      color: '#111827',
+                      boxSizing: 'border-box',
+                      fontFamily: UI_FONT,
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 12, padding: '0 20px 20px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      removePin(editing.id);
+                      setEditingId(null);
+                      setDraft('');
+                    }}
+                    style={{
+                      flex: '0 0 auto',
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: '1px solid #fecaca',
+                      background: '#fff',
+                      color: '#b91c1c',
+                      fontSize: 14,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeEditor}
+                    style={{
+                      flex: 1,
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: '#e11d48',
+                      color: '#fff',
+                      fontSize: 14,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
