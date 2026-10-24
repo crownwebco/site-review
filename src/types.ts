@@ -1,4 +1,8 @@
-export type SectionStatus = 'unreviewed' | 'approved' | 'commented';
+/**
+ * A section's verdict. A `comment` can accompany ANY verdict — so 'approved'
+ * with a note is "approve with feedback", and 'changes' is "please change this".
+ */
+export type SectionStatus = 'unreviewed' | 'approved' | 'changes';
 
 /**
  * A reviewable section discovered at runtime from a `data-review` attribute.
@@ -47,6 +51,19 @@ export interface Pin {
   /** Short descriptor of the clicked element, e.g. "button · Book Now". */
   target?: string;
   note: string;
+}
+
+/**
+ * Full review state serialized at submit time. Compressed into the email's
+ * developer deep link so the developer can re-apply the reviewer's exact state
+ * (read-only) on the frozen staging site.
+ */
+export interface ReviewSnapshot {
+  v: number;
+  siteName: string;
+  submittedAt: string;
+  sections: SectionState[];
+  pins: Pin[];
 }
 
 /** A page advertised in the panel up front, so the client sees everything to review. */
