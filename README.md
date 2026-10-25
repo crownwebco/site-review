@@ -136,6 +136,40 @@ Two independent switches — either one (combined with an allowed host) activate
 - **Env flag** — set `NEXT_PUBLIC_REVIEW_ENABLED=true` in the **staging** environment (e.g. Vercel → Staging env). On for every visitor until you set it back / remove it (needs a redeploy to flip).
 - **Magic link** — send the client `https://client.crownwebdesign.com/?review=<token>`. It unlocks on that browser and persists until `?review=off`. If you set the `token` prop, the value must match; otherwise any non-empty value works. The param is stripped from the URL after it's read.
 
+## Developer view
+
+When the client hits **Send Review**, the email includes an **"Open developer view"** link (and a raw-JSON fallback). Open it on the staging site and you get a **read-only** view of their exact submission:
+
+- Overlays show each section's verdict with **no edit buttons**; click a badge (or hover for a tooltip) to read its note inline.
+- A dashboard lists every verdict and pin. On the page you're currently viewing, dashboard items are **clickable anchors** that scroll to the section/pin; items on other pages are shown but not clickable (navigate to that page first).
+- It's **ephemeral** — hydrated from the link into memory, never written to the visitor's storage, so it can't clobber anyone's data. **Exit** returns to normal.
+
+> Because pins are positioned by coordinates, the developer view is faithful only while staging matches what the client reviewed — so **freeze staging deploys during the review window** and resume once they've submitted.
+
+## Environment variables (consuming site)
+
+Set these in the site's Vercel project (or `.env.local` for local dev):
+
+| Variable | Scope | Purpose |
+|----------|-------|---------|
+| `NEXT_PUBLIC_REVIEW_ENABLED` | **Staging/Preview** | `"true"` turns the feature on. Read it in your layout and pass to `enabled`. |
+| `NEXT_PUBLIC_REVIEW_TOKEN` | Staging/Preview (optional) | Secret for the `?review=<token>` magic link. Pass to `token`. |
+| `EMAIL_SERVICE_API_KEY` | **Production + Preview** | Resend API key used by your submit action. ⚠️ **Must include Preview**, or submits on staging silently fail — scope it to Production only and the key is absent on staging. |
+| `EMAIL_FROM` | Production + Preview | Verified sender address for the review email. |
+| `REVIEW_EMAIL_TO` | Production + Preview (optional) | Where review emails are sent (defaults to `review@crownwebdesign.com`). |
+
+Env vars apply per-environment at **build time** and only to builds that run **after** they're set — so after changing one, redeploy. A Preview-scoped var covers every preview branch regardless of when the branch was created.
+
+## Per-project setup checklist
+
+1. `npm install @crownwebdesign/site-review`.
+2. Create the submit server action (step 1 above) — keep the missing-key guard so failures are visible.
+3. Mount `<ReviewProvider>` in your site layout with `enabled`, `onSubmit`, `siteName`, and `pages`.
+4. Add `data-review="…"` to the sections you want reviewable.
+5. Set the env vars above in Vercel (mind the `EMAIL_SERVICE_API_KEY` Preview scope).
+6. Confirm the staging host matches `allowedHostSuffix` (default `.crownwebdesign.com`), or override it in `options`.
+7. Flip `NEXT_PUBLIC_REVIEW_ENABLED=true` on staging for the review window; freeze staging deploys while the client reviews.
+
 ## API
 
 ### `<ReviewProvider>`
@@ -169,6 +203,7 @@ Semver. v2 is a breaking redesign (no more `ReviewSection`/`ReviewControls`/`Sec
 
 - **2.1.0** — adds the `pages` prop (up-front page list in the panel) and pin-a-comment, plus always-visible approve/comment buttons, approve-as-toggle, expandable pages, and a fix for the comment box resetting while typing. Non-breaking; the `onSubmit` 3rd arg (`pins`) is optional.
 - **2.2.0** — verdict model (`SectionStatus` is now `unreviewed | approved | changes`; a note can accompany an approval = "approve with feedback"); developer snapshot view (submit email carries a `#review=…&role=dev` deep link → read-only dashboard on staging); `onSubmit` gains an optional 4th arg `devView` (`{ url, json }`) to forward into `formatReviewEmail`. If you persisted `'commented'` anywhere, it's now `'changes'`.
+- **2.3.0** — developer-view polish: overlay badges reveal the note inline (tooltip + click); dashboard sections/pins on the current page are clickable anchors that scroll to them. Non-breaking.
 
 ## Working on this package
 

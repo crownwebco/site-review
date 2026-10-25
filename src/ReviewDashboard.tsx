@@ -1,11 +1,34 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { useReview, pageKeyFromPath } from './ReviewContext';
 import type { SectionState } from './types';
 
 const UI_FONT =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
+/** Scroll to a reviewed section on the current page and flash it. */
+function goToSection(s: SectionState) {
+  const el =
+    document.querySelector(`[data-review-id="${CSS.escape(s.id)}"]`) ||
+    Array.from(document.querySelectorAll('[data-review]')).find(
+      (e) => e.getAttribute('data-review') === s.name
+    );
+  if (!(el instanceof HTMLElement)) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const prev = el.style.boxShadow;
+  el.style.transition = 'box-shadow 200ms';
+  el.style.boxShadow = '0 0 0 4px rgba(79,70,229,0.65)';
+  window.setTimeout(() => {
+    el.style.boxShadow = prev;
+  }, 1300);
+}
+
+/** Scroll to a pin's coordinates on the current page. */
+function goToPin(x: number, y: number) {
+  window.scrollTo({ top: Math.max(0, y - 120), left: 0, behavior: 'smooth' });
+}
 
 const mark = (s: string) => (s === 'approved' ? '✓' : s === 'changes' ? '✎' : '○');
 const markColor = (s: string) =>
@@ -19,6 +42,7 @@ const markColor = (s: string) =>
 export function ReviewDashboard() {
   const { sections, pins, declaredPages, snapshotMeta, exitDevView } = useReview();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const currentKey = pageKeyFromPath(usePathname());
 
   const all = Object.values(sections);
   const approved = all.filter((s) => s.status === 'approved').length;
@@ -134,19 +158,33 @@ export function ReviewDashboard() {
                 </button>
                 {isOpen && has && (
                   <div style={{ paddingLeft: 10, marginTop: 4 }}>
-                    {pg.sections.map((s) => (
-                      <div key={s.id} style={{ fontSize: 12, padding: '3px 0' }}>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <span style={{ color: markColor(s.status), fontWeight: 700 }}>{mark(s.status)}</span>
-                          <span style={{ color: '#4b5563' }}>{s.name}</span>
+                    {pg.sections.map((s) => {
+                      const here = s.page === currentKey;
+                      return (
+                        <div key={s.id} style={{ fontSize: 12, padding: '3px 0' }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <span style={{ color: markColor(s.status), fontWeight: 700 }}>{mark(s.status)}</span>
+                            {here ? (
+                              <button
+                                type="button"
+                                onClick={() => goToSection(s)}
+                                title="Scroll to this section"
+                                style={{ all: 'unset', cursor: 'pointer', color: '#4f46e5', textDecoration: 'underline' }}
+                              >
+                                {s.name}
+                              </button>
+                            ) : (
+                              <span style={{ color: '#4b5563' }} title="On another page">{s.name}</span>
+                            )}
+                          </div>
+                          {s.comment.trim() && (
+                            <p style={{ margin: '2px 0 0 18px', fontStyle: 'italic', color: '#6b7280' }}>
+                              “{s.comment.trim()}”
+                            </p>
+                          )}
                         </div>
-                        {s.comment.trim() && (
-                          <p style={{ margin: '2px 0 0 18px', fontStyle: 'italic', color: '#6b7280' }}>
-                            “{s.comment.trim()}”
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -156,20 +194,38 @@ export function ReviewDashboard() {
           {pins.length > 0 && (
             <>
               <p style={{ ...label, marginTop: 12 }}>Pins</p>
-              {pins.map((p, i) => (
-                <div key={p.id} style={{ fontSize: 12, padding: '3px 0' }}>
-                  <div style={{ color: '#374151' }}>
+              {pins.map((p, i) => {
+                const here = p.page === currentKey;
+                const headline = (
+                  <>
                     <span style={{ color: '#e11d48', fontWeight: 700 }}>{i + 1}.</span>{' '}
                     {p.pageName}
                     {p.sectionName ? ` › ${p.sectionName}` : ' › (no section)'}
+                    {here && <span style={{ color: '#4f46e5' }}> ↗</span>}
+                  </>
+                );
+                return (
+                  <div key={p.id} style={{ fontSize: 12, padding: '3px 0' }}>
+                    {here ? (
+                      <button
+                        type="button"
+                        onClick={() => goToPin(p.x, p.y)}
+                        title="Scroll to this pin"
+                        style={{ all: 'unset', cursor: 'pointer', display: 'block', color: '#374151' }}
+                      >
+                        {headline}
+                      </button>
+                    ) : (
+                      <div style={{ color: '#374151' }} title="On another page">{headline}</div>
+                    )}
+                    {p.note.trim() && (
+                      <p style={{ margin: '2px 0 0 14px', fontStyle: 'italic', color: '#6b7280' }}>
+                        “{p.note.trim()}”
+                      </p>
+                    )}
                   </div>
-                  {p.note.trim() && (
-                    <p style={{ margin: '2px 0 0 14px', fontStyle: 'italic', color: '#6b7280' }}>
-                      “{p.note.trim()}”
-                    </p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </>
           )}
         </div>
