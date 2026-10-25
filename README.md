@@ -206,6 +206,7 @@ Semver. v2 is a breaking redesign (no more `ReviewSection`/`ReviewControls`/`Sec
 - **2.2.0** — verdict model (`SectionStatus` is now `unreviewed | approved | changes`; a note can accompany an approval = "approve with feedback"); developer snapshot view (submit email carries a `#review=…&role=dev` deep link → read-only dashboard on staging); `onSubmit` gains an optional 4th arg `devView` (`{ url, json }`) to forward into `formatReviewEmail`. If you persisted `'commented'` anywhere, it's now `'changes'`.
 - **2.3.0** — developer-view polish: overlay badges reveal the note inline (tooltip + click); dashboard sections/pins on the current page are clickable anchors that scroll to them. Non-breaking.
 - **2.4.0** — `maxCommentLength` option (default 500) caps all feedback fields with a counter; the dev-view note bubble is wider with a scroll cap; the developer role now persists on the browser (Hide keeps it, "Leave developer mode" clears it) so you can exit/re-enter without dropping back to the reviewer view. Non-breaking.
+- **2.4.1** — fix: section overlays lagged/floated during scroll and snapped back on stop. They now use document-coordinate absolute positioning (like pins) and scroll natively — no per-scroll re-render.
 
 ## Working on this package
 
