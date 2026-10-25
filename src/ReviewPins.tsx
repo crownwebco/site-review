@@ -29,7 +29,7 @@ function describe(el: Element | null): string | undefined {
  * included in the submitted review.
  */
 export function ReviewPins() {
-  const { pinMode, togglePinMode, pins, addPin, updatePin, removePin, declaredPages, devMode } =
+  const { pinMode, togglePinMode, pins, addPin, updatePin, removePin, declaredPages, devMode, maxCommentLength } =
     useReview();
   const pathname = usePathname();
   const currentKey = pageKeyFromPath(pathname);
@@ -225,7 +225,8 @@ export function ReviewPins() {
                 <div style={{ padding: 20 }}>
                   <textarea
                     value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
+                    onChange={(e) => setDraft(e.target.value.slice(0, maxCommentLength))}
+                    maxLength={maxCommentLength}
                     placeholder="What about this spot?"
                     rows={4}
                     autoFocus
@@ -241,6 +242,9 @@ export function ReviewPins() {
                       fontFamily: UI_FONT,
                     }}
                   />
+                  <div style={{ marginTop: 4, textAlign: 'right', fontSize: 11, color: '#9ca3af' }}>
+                    {draft.length}/{maxCommentLength}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 12, padding: '0 20px 20px' }}>
                   <button

@@ -40,7 +40,7 @@ const markColor = (s: string) =>
  * editing, submitting, or pinning.
  */
 export function ReviewDashboard() {
-  const { sections, pins, declaredPages, snapshotMeta, exitDevView } = useReview();
+  const { sections, pins, declaredPages, snapshotMeta, exitDevView, leaveDevView } = useReview();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const currentKey = pageKeyFromPath(usePathname());
 
@@ -111,12 +111,29 @@ export function ReviewDashboard() {
                 cursor: 'pointer',
               }}
             >
-              Exit
+              Hide
             </button>
           </div>
-          {when && (
-            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Snapshot from {when}</div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
+            {when && <span style={{ fontSize: 11, opacity: 0.85 }}>Snapshot from {when}</span>}
+            <button
+              type="button"
+              onClick={leaveDevView}
+              title="Forget the developer role on this browser and return to the reviewer experience"
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: 'rgba(255,255,255,0.85)',
+                fontSize: 11,
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                padding: 0,
+                marginLeft: 'auto',
+              }}
+            >
+              Leave developer mode
+            </button>
+          </div>
         </div>
 
         {/* Summary counts */}

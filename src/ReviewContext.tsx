@@ -65,12 +65,14 @@ interface ReviewContextValue {
   devMode: boolean;
   snapshotMeta: { submittedAt: string } | null;
   exitDevView: () => void;
+  leaveDevView: () => void;
   togglePinMode: () => void;
   addPin: (pin: Pin) => void;
   updatePin: (id: string, note: string) => void;
   removePin: (id: string) => void;
   isComplete: boolean;
   requireComplete: boolean;
+  maxCommentLength: number;
   siteName: string;
   submit: (
     data: ReviewSubmissionData[],
@@ -240,6 +242,7 @@ export function ReviewProvider({
     tokenParam = 'review',
     storageKey = 'site-review',
     requireComplete = false,
+    maxCommentLength = 500,
   } = options ?? {};
 
   const pathname = usePathname();
@@ -267,6 +270,8 @@ export function ReviewProvider({
   const modeKey = `${storageKey}:mode`;
   const visitedKey = `${storageKey}:visited`;
   const pinsKey = `${storageKey}:pins`;
+  const roleKey = `${storageKey}:role`;
+  const devSnapKey = `${storageKey}:dev`;
 
   // Mount: resolve host, process the magic-link token, restore persisted flags + data.
   useEffect(() => {
@@ -306,22 +311,41 @@ export function ReviewProvider({
       const pinsRaw = localStorage.getItem(pinsKey);
       if (pinsRaw) dispatch({ type: 'LOAD_PINS', pins: JSON.parse(pinsRaw) as Pin[] });
 
-      // Developer snapshot link: #review=<compressed>&role=dev
+      const hydrateDev = (snap: ReviewSnapshot) => {
+        devModeRef.current = true; // guard persistence BEFORE dispatching
+        dispatch({
+          type: 'LOAD',
+          sections: Object.fromEntries((snap.sections ?? []).map((s) => [s.id, s])),
+        });
+        dispatch({ type: 'LOAD_PINS', pins: snap.pins ?? [] });
+        setDevMode(true);
+        setSnapshotMeta({ submittedAt: snap.submittedAt });
+      };
+
+      // 1) Persisted developer role — re-enter dev view across reloads without
+      //    needing the link again (the browser "is" the developer until it leaves).
+      if (localStorage.getItem(roleKey) === 'dev') {
+        const snapRaw = localStorage.getItem(devSnapKey);
+        if (snapRaw) hydrateDev(JSON.parse(snapRaw) as ReviewSnapshot);
+      }
+
+      // 2) Developer snapshot link: #review=<compressed>&role=dev — establishes
+      //    (or refreshes) the dev role, persists it, then tidies the URL.
       const hash = window.location.hash.replace(/^#/, '');
       const hp = new URLSearchParams(hash);
       if (hp.get('role') === 'dev' && hp.get('review')) {
         const decoded = LZString.decompressFromEncodedURIComponent(hp.get('review') as string);
         const snap = decoded ? (JSON.parse(decoded) as ReviewSnapshot) : null;
         if (snap) {
-          devModeRef.current = true; // guard persistence BEFORE dispatching
-          dispatch({
-            type: 'LOAD',
-            sections: Object.fromEntries((snap.sections ?? []).map((s) => [s.id, s])),
-          });
-          dispatch({ type: 'LOAD_PINS', pins: snap.pins ?? [] });
-          setDevMode(true);
-          setReviewMode(true);
-          setSnapshotMeta({ submittedAt: snap.submittedAt });
+          localStorage.setItem(roleKey, 'dev');
+          localStorage.setItem(devSnapKey, decoded as string);
+          hydrateDev(snap);
+          setReviewMode(true); // opening the link shows the dashboard immediately
+          window.history.replaceState(
+            {},
+            '',
+            window.location.pathname + window.location.search
+          );
         }
       }
     } catch {
@@ -382,10 +406,26 @@ export function ReviewProvider({
   }, [modeKey]);
 
   const togglePinMode = useCallback(() => setPinMode((p) => !p), []);
+  // Hide the dashboard but STAY the developer — re-entering shows dev view again.
   const exitDevView = useCallback(() => {
-    // Drop the snapshot hash and reload so normal (persisted) state returns.
+    setReviewMode(false);
+    try {
+      localStorage.setItem(modeKey, '0');
+    } catch {
+      // ignore
+    }
+  }, [modeKey]);
+  // Fully drop the developer role — clear the persisted role + snapshot, reload
+  // to the reviewer's normal state.
+  const leaveDevView = useCallback(() => {
+    try {
+      localStorage.removeItem(roleKey);
+      localStorage.removeItem(devSnapKey);
+    } catch {
+      // ignore
+    }
     window.location.replace(window.location.pathname + window.location.search);
-  }, []);
+  }, [roleKey, devSnapKey]);
   const addPin = useCallback((pin: Pin) => dispatch({ type: 'ADD_PIN', pin }), []);
   const updatePin = useCallback(
     (id: string, note: string) => dispatch({ type: 'UPDATE_PIN', id, note }),
@@ -450,12 +490,14 @@ export function ReviewProvider({
     devMode,
     snapshotMeta,
     exitDevView,
+    leaveDevView,
     togglePinMode,
     addPin,
     updatePin,
     removePin,
     isComplete,
     requireComplete,
+    maxCommentLength,
     siteName,
     submit: onSubmit,
   };
