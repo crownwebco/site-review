@@ -47,6 +47,7 @@ export function ReviewOverlay() {
 
   const [items, setItems] = useState<Discovered[]>([]);
   const [rects, setRects] = useState<Record<string, DOMRect>>({});
+  const [openNoteId, setOpenNoteId] = useState<string | null>(null);
   const frame = useRef<number | null>(null);
   const sigRef = useRef('');
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -189,24 +190,77 @@ export function ReviewOverlay() {
               {it.name}
             </span>
 
-            {/* Status badge — top right */}
-            <span
-              style={{
-                position: 'absolute',
-                top: 6,
-                right: 6,
-                padding: '2px 8px',
-                borderRadius: 9999,
-                fontSize: 11,
-                fontWeight: 700,
-                color: '#fff',
-                background: color,
-                fontFamily: UI_FONT,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {statusText}
-            </span>
+            {/* Status badge — top right. In dev view with a note, it's a
+                clickable pill that reveals the feedback inline. */}
+            {devMode && hasNote ? (
+              <button
+                type="button"
+                title={section?.comment}
+                onClick={() => setOpenNoteId((cur) => (cur === it.id ? null : it.id))}
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  padding: '2px 8px',
+                  borderRadius: 9999,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: '#fff',
+                  background: color,
+                  fontFamily: UI_FONT,
+                  whiteSpace: 'nowrap',
+                  border: 'none',
+                  cursor: 'pointer',
+                  pointerEvents: 'auto',
+                }}
+              >
+                {statusText} ⓘ
+              </button>
+            ) : (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  padding: '2px 8px',
+                  borderRadius: 9999,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: '#fff',
+                  background: color,
+                  fontFamily: UI_FONT,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {statusText}
+              </span>
+            )}
+
+            {/* Read-only note bubble (dev view) */}
+            {devMode && openNoteId === it.id && hasNote && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 32,
+                  right: 6,
+                  maxWidth: 280,
+                  background: '#fff',
+                  color: '#1f2937',
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #e5e7eb',
+                  boxShadow: '0 8px 20px rgba(0,0,0,0.2)',
+                  fontFamily: UI_FONT,
+                  whiteSpace: 'pre-wrap',
+                  pointerEvents: 'auto',
+                  zIndex: 1,
+                }}
+              >
+                {section?.comment?.trim()}
+              </div>
+            )}
 
             {/* Action buttons — always visible in review mode, hidden in read-only dev view */}
             <div
