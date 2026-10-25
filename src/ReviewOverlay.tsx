@@ -9,6 +9,14 @@ interface Discovered extends SectionRegistration {
   el: Element;
 }
 
+/** Overlay geometry in document coordinates (scrolls natively with the page). */
+interface Box {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
 function pageFromPath(pathname: string | null): string {
   if (!pathname || pathname === '/') return 'home';
   return pathname.replace(/^\//, '').split('/')[0] || 'home';
@@ -46,7 +54,7 @@ export function ReviewOverlay() {
   const pathname = usePathname();
 
   const [items, setItems] = useState<Discovered[]>([]);
-  const [rects, setRects] = useState<Record<string, DOMRect>>({});
+  const [rects, setRects] = useState<Record<string, Box>>({});
   const [openNoteId, setOpenNoteId] = useState<string | null>(null);
   const frame = useRef<number | null>(null);
   const sigRef = useRef('');
@@ -77,13 +85,21 @@ export function ReviewOverlay() {
     if (frame.current != null) cancelAnimationFrame(frame.current);
     frame.current = requestAnimationFrame(() => {
       setRects((prev) => {
-        const next: Record<string, DOMRect> = {};
+        const next: Record<string, Box> = {};
         let changed = false;
         for (const it of items) {
           const r = it.el.getBoundingClientRect();
-          next[it.id] = r;
+          // Document coordinates — so the (absolutely positioned) boxes scroll
+          // with the page natively, no per-scroll JS/re-render needed.
+          const box: Box = {
+            top: r.top + window.scrollY,
+            left: r.left + window.scrollX,
+            width: r.width,
+            height: r.height,
+          };
+          next[it.id] = box;
           const p = prev[it.id];
-          if (!p || p.top !== r.top || p.left !== r.left || p.width !== r.width || p.height !== r.height) {
+          if (!p || p.top !== box.top || p.left !== box.left || p.width !== box.width || p.height !== box.height) {
             changed = true;
           }
         }
@@ -116,15 +132,17 @@ export function ReviewOverlay() {
     };
   }, [scan]);
 
-  // Keep overlay boxes aligned with their elements.
+  // Keep overlay boxes aligned with their elements. Boxes use document
+  // coordinates + position:absolute, so scrolling is handled natively by the
+  // browser — we only re-measure when geometry actually changes (resize, an
+  // element resizing, or the page's overall layout shifting).
   useEffect(() => {
     measure();
-    window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
     const ro = new ResizeObserver(measure);
     items.forEach((it) => ro.observe(it.el));
+    ro.observe(document.body); // catches layout shifts above tracked elements
     return () => {
-      window.removeEventListener('scroll', measure, true);
       window.removeEventListener('resize', measure);
       ro.disconnect();
       if (frame.current != null) cancelAnimationFrame(frame.current);
@@ -136,7 +154,7 @@ export function ReviewOverlay() {
   return createPortal(
     <div
       data-review-overlay-root
-      style={{ position: 'fixed', inset: 0, zIndex: 2147482000, pointerEvents: 'none' }}
+      style={{ position: 'absolute', top: 0, left: 0, width: 0, height: 0, zIndex: 2147482000, pointerEvents: 'none' }}
     >
       {items.map((it) => {
         const rect = rects[it.id];
@@ -159,7 +177,7 @@ export function ReviewOverlay() {
           <div
             key={it.id}
             style={{
-              position: 'fixed',
+              position: 'absolute',
               top: rect.top,
               left: rect.left,
               width: rect.width,
