@@ -104,4 +104,9 @@ export interface ReviewOptions {
    * @default false
    */
   requireComplete?: boolean;
+  /**
+   * Max characters for any feedback field (section note, "anything else", pin note).
+   * @default 500
+   */
+  maxCommentLength?: number;
 }

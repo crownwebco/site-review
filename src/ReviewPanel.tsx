@@ -36,6 +36,7 @@ export function ReviewPanel() {
     togglePinMode,
     isComplete,
     requireComplete,
+    maxCommentLength,
     siteName,
     submit,
   } = useReview();
@@ -166,12 +167,16 @@ export function ReviewPanel() {
               <label style={fieldLabel}>What do you like, or want changed?</label>
               <textarea
                 value={comment}
-                onChange={(e) => setComment(e.target.value)}
+                onChange={(e) => setComment(e.target.value.slice(0, maxCommentLength))}
+                maxLength={maxCommentLength}
                 placeholder="e.g. Love the colors — or — can we change the heading font?"
                 rows={5}
                 autoFocus
                 style={textarea}
               />
+              <div style={counter}>
+                {comment.length}/{maxCommentLength}
+              </div>
             </div>
             <div style={{ ...modalFooter, gap: 8, flexWrap: 'wrap' }}>
               {activeSection && activeSection.status !== 'unreviewed' && (
@@ -278,12 +283,16 @@ export function ReviewPanel() {
               </label>
               <textarea
                 value={additionalComments}
-                onChange={(e) => setAdditionalComments(e.target.value)}
+                onChange={(e) => setAdditionalComments(e.target.value.slice(0, maxCommentLength))}
+                maxLength={maxCommentLength}
                 placeholder="Any other thoughts that didn't fit a specific section…"
                 rows={3}
                 disabled={isPending || status !== 'idle'}
                 style={textarea}
               />
+              <div style={counter}>
+                {additionalComments.length}/{maxCommentLength}
+              </div>
             </div>
 
             <div style={modalFooter}>
@@ -569,6 +578,12 @@ const textarea: React.CSSProperties = {
   color: '#111827',
   boxSizing: 'border-box',
   fontFamily: UI_FONT,
+};
+const counter: React.CSSProperties = {
+  marginTop: 4,
+  textAlign: 'right',
+  fontSize: 11,
+  color: '#9ca3af',
 };
 const btnGhost: React.CSSProperties = {
   flex: 1,

@@ -142,7 +142,7 @@ When the client hits **Send Review**, the email includes an **"Open developer vi
 
 - Overlays show each section's verdict with **no edit buttons**; click a badge (or hover for a tooltip) to read its note inline.
 - A dashboard lists every verdict and pin. On the page you're currently viewing, dashboard items are **clickable anchors** that scroll to the section/pin; items on other pages are shown but not clickable (navigate to that page first).
-- It's **ephemeral** — hydrated from the link into memory, never written to the visitor's storage, so it can't clobber anyone's data. **Exit** returns to normal.
+- The dev session is held in memory and never written to the reviewer's section/pin storage, so it can't clobber their data. The browser *does* remember it's the **developer** (role + snapshot persisted separately), so **Hide** collapses the dashboard but keeps you in developer mode — the floating button becomes **"Developer View"** and re-opens it. **"Leave developer mode"** forgets the role and returns the browser to the reviewer experience.
 
 > Because pins are positioned by coordinates, the developer view is faithful only while staging matches what the client reviewed — so **freeze staging deploys during the review window** and resume once they've submitted.
 
@@ -192,6 +192,7 @@ Env vars apply per-environment at **build time** and only to builds that run **a
 | `tokenParam` | `'review'` | Query param for the magic link. |
 | `storageKey` | `'site-review'` | localStorage namespace. |
 | `requireComplete` | `false` | Require every section reviewed before submit. |
+| `maxCommentLength` | `500` | Max characters for any feedback field (section note, "anything else", pin note). |
 
 ### `ReviewSubmissionData`
 
@@ -204,6 +205,7 @@ Semver. v2 is a breaking redesign (no more `ReviewSection`/`ReviewControls`/`Sec
 - **2.1.0** — adds the `pages` prop (up-front page list in the panel) and pin-a-comment, plus always-visible approve/comment buttons, approve-as-toggle, expandable pages, and a fix for the comment box resetting while typing. Non-breaking; the `onSubmit` 3rd arg (`pins`) is optional.
 - **2.2.0** — verdict model (`SectionStatus` is now `unreviewed | approved | changes`; a note can accompany an approval = "approve with feedback"); developer snapshot view (submit email carries a `#review=…&role=dev` deep link → read-only dashboard on staging); `onSubmit` gains an optional 4th arg `devView` (`{ url, json }`) to forward into `formatReviewEmail`. If you persisted `'commented'` anywhere, it's now `'changes'`.
 - **2.3.0** — developer-view polish: overlay badges reveal the note inline (tooltip + click); dashboard sections/pins on the current page are clickable anchors that scroll to them. Non-breaking.
+- **2.4.0** — `maxCommentLength` option (default 500) caps all feedback fields with a counter; the dev-view note bubble is wider with a scroll cap; the developer role now persists on the browser (Hide keeps it, "Leave developer mode" clears it) so you can exit/re-enter without dropping back to the reviewer view. Non-breaking.
 
 ## Working on this package
 
