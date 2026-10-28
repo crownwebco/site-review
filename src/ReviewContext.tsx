@@ -22,6 +22,7 @@ import type {
   ReviewSnapshot,
 } from './types';
 import { ReviewUI } from './ReviewUI';
+import { ReviewEnded } from './ReviewEnded';
 
 export type { SectionState, SectionStatus, ReviewSubmissionData, ReviewOptions, ReviewPage, Pin };
 
@@ -40,8 +41,10 @@ export interface SectionRegistration {
 }
 
 interface ReviewContextValue {
-  /** Feature is allowed on this host AND switched on (env flag or magic-link token). */
+  /** Feature is available on this host (reviewer window active, or dev view). */
   active: boolean;
+  /** The review window's end date has passed (drives the "ended" notice). */
+  windowEnded: boolean;
   /** The reviewer has entered review mode (persisted across reloads). */
   reviewMode: boolean;
   toggleReviewMode: () => void;
@@ -192,10 +195,14 @@ export interface ReviewProviderProps {
    */
   enabled?: boolean;
   /**
-   * Optional shared secret for the magic link. When set, only `?review=<token>`
-   * unlocks the feature; when unset, any non-empty `?review=` value unlocks it.
+   * Optional review-window end date in **MM-DD-YYYY** format (e.g. from
+   * `NEXT_PUBLIC_REVIEW_UNTIL`). Treated as the end of that day in **Mountain
+   * Time** (America/Denver), so the deadline is the same instant for every
+   * client regardless of their timezone. A client-side timer enforces it live,
+   * so an open/idle tab disables review mode and shows an "ended" notice once
+   * the date passes — no refresh needed. Omit for no auto-end (flag-only).
    */
-  token?: string;
+  reviewUntil?: string;
   /** Project name shown in the panel and summary email. */
   siteName?: string;
   /**
@@ -215,6 +222,51 @@ export interface ReviewProviderProps {
   options?: ReviewOptions;
 }
 
+const REVIEW_TZ = 'America/Denver'; // Mountain Time — see reviewUntil docs
+
+/** Milliseconds to add to a UTC instant to get the wall-clock time in `tz`. */
+function zoneOffsetMs(tz: string, utcMs: number): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const g: Record<string, string> = {};
+  for (const p of dtf.formatToParts(new Date(utcMs))) {
+    if (p.type !== 'literal') g[p.type] = p.value;
+  }
+  const hour = g.hour === '24' ? 0 : Number(g.hour);
+  const asUTC = Date.UTC(
+    Number(g.year),
+    Number(g.month) - 1,
+    Number(g.day),
+    hour,
+    Number(g.minute),
+    Number(g.second)
+  );
+  return asUTC - utcMs;
+}
+
+/** Parse "MM-DD-YYYY" as end-of-day (23:59:59.999) Mountain Time → UTC ms. */
+function parseReviewUntil(s?: string): number | null {
+  if (!s) return null;
+  const m = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(s.trim());
+  if (!m) return null;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  const year = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  // Desired Mountain wall time expressed naively as UTC, then shifted by the
+  // zone's offset at that instant (DST-correct).
+  const naive = Date.UTC(year, month - 1, day, 23, 59, 59, 999);
+  return naive - zoneOffsetMs(REVIEW_TZ, naive);
+}
+
 function isHostAllowed(suffix: string, allowLocalhost: boolean): boolean {
   if (typeof window === 'undefined') return false;
   const h = window.location.hostname;
@@ -230,7 +282,7 @@ function isHostAllowed(suffix: string, allowLocalhost: boolean): boolean {
 export function ReviewProvider({
   children,
   enabled = false,
-  token,
+  reviewUntil,
   siteName = 'this website',
   pages,
   onSubmit,
@@ -239,23 +291,27 @@ export function ReviewProvider({
   const {
     allowedHostSuffix = '.crownwebdesign.com',
     allowLocalhost = true,
-    tokenParam = 'review',
     storageKey = 'site-review',
     requireComplete = false,
     maxCommentLength = 500,
   } = options ?? {};
+
+  const untilTs = useMemo(() => parseReviewUntil(reviewUntil), [reviewUntil]);
 
   const pathname = usePathname();
   const declaredPages = useMemo(() => pages ?? [], [pages]);
 
   const [mounted, setMounted] = useState(false);
   const [hostAllowed, setHostAllowed] = useState(false);
-  const [tokenUnlocked, setTokenUnlocked] = useState(false);
   const [reviewMode, setReviewMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [visitedPages, setVisitedPages] = useState<string[]>([]);
   const [devMode, setDevMode] = useState(false);
   const [snapshotMeta, setSnapshotMeta] = useState<{ submittedAt: string } | null>(null);
+  // Re-evaluated on a timer so an open tab self-expires when the window passes.
+  const [windowEnded, setWindowEnded] = useState(() =>
+    untilTs != null ? Date.now() >= untilTs : false
+  );
   // Set synchronously (before dispatching LOAD) so persist effects never write
   // a hydrated snapshot over the reviewer's own stored data.
   const devModeRef = useRef(false);
@@ -266,37 +322,20 @@ export function ReviewProvider({
     activeModalId: null,
   });
 
-  const unlockKey = `${storageKey}:unlocked`;
   const modeKey = `${storageKey}:mode`;
   const visitedKey = `${storageKey}:visited`;
   const pinsKey = `${storageKey}:pins`;
   const roleKey = `${storageKey}:role`;
   const devSnapKey = `${storageKey}:dev`;
 
-  // Mount: resolve host, process the magic-link token, restore persisted flags + data.
+  // Mount: resolve host, restore persisted flags + data. Reviewer access is
+  // controlled entirely by the env-driven `enabled` + `reviewUntil` props —
+  // there is no client-side activation.
   useEffect(() => {
     setMounted(true);
     setHostAllowed(isHostAllowed(allowedHostSuffix, allowLocalhost));
 
     try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.has(tokenParam)) {
-        const value = params.get(tokenParam) ?? '';
-        if (value === 'off') {
-          localStorage.removeItem(unlockKey);
-        } else if (token ? value === token : value.length > 0) {
-          localStorage.setItem(unlockKey, '1');
-        }
-        // Tidy the URL so the token isn't left lying around.
-        params.delete(tokenParam);
-        const qs = params.toString();
-        window.history.replaceState(
-          {},
-          '',
-          window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
-        );
-      }
-      setTokenUnlocked(localStorage.getItem(unlockKey) === '1');
       setReviewMode(localStorage.getItem(modeKey) === '1');
 
       const raw = localStorage.getItem(storageKey);
@@ -354,7 +393,36 @@ export function ReviewProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const active = mounted && hostAllowed && (enabled || tokenUnlocked || devMode);
+  // Reviewer access is purely developer-controlled: the env flag must be on and
+  // the review window must not have ended. Dev view is independent of both.
+  const reviewerActive = mounted && hostAllowed && enabled && !windowEnded;
+  const active = reviewerActive || (mounted && hostAllowed && devMode);
+
+  // Live review-window timer: flip `windowEnded` the moment the deadline passes
+  // so an open/idle tab self-expires without a refresh.
+  useEffect(() => {
+    if (untilTs == null) return;
+    const check = () => setWindowEnded(Date.now() >= untilTs);
+    check();
+    const id = setInterval(check, 30000);
+    return () => clearInterval(id);
+  }, [untilTs]);
+
+  // When the browser is not an active reviewer (flag off or window ended) and is
+  // not the developer, wipe stale reviewer state so nothing lingers between
+  // reviews. Dev keys (:role, :dev) are left intact.
+  useEffect(() => {
+    if (!mounted || devModeRef.current) return;
+    if (reviewerActive) return;
+    try {
+      localStorage.removeItem(storageKey);
+      localStorage.removeItem(modeKey);
+      localStorage.removeItem(visitedKey);
+      localStorage.removeItem(pinsKey);
+    } catch {
+      // ignore
+    }
+  }, [mounted, reviewerActive, storageKey, modeKey, visitedKey, pinsKey]);
 
   // Mark the current page visited (so the panel can show its discovered count).
   useEffect(() => {
@@ -372,26 +440,27 @@ export function ReviewProvider({
     });
   }, [active, pathname, visitedKey]);
 
-  // Persist section data whenever it changes. Never in dev view — a hydrated
-  // snapshot must not overwrite the reviewer's own stored data.
+  // Persist section data whenever it changes — only for an active reviewer.
+  // Never in dev view (a hydrated snapshot must not overwrite stored data) and
+  // never when inactive (so it can't re-write data the wipe just cleared).
   useEffect(() => {
-    if (!mounted || devModeRef.current) return;
+    if (!mounted || devModeRef.current || !reviewerActive) return;
     try {
       localStorage.setItem(storageKey, JSON.stringify(state.sections));
     } catch {
       // ignore
     }
-  }, [state.sections, storageKey, mounted]);
+  }, [state.sections, storageKey, mounted, reviewerActive]);
 
-  // Persist pins whenever they change (skipped in dev view).
+  // Persist pins whenever they change (active reviewer only).
   useEffect(() => {
-    if (!mounted || devModeRef.current) return;
+    if (!mounted || devModeRef.current || !reviewerActive) return;
     try {
       localStorage.setItem(pinsKey, JSON.stringify(state.pins));
     } catch {
       // ignore
     }
-  }, [state.pins, pinsKey, mounted]);
+  }, [state.pins, pinsKey, mounted, reviewerActive]);
 
   const toggleReviewMode = useCallback(() => {
     setReviewMode((prev) => {
@@ -471,6 +540,7 @@ export function ReviewProvider({
 
   const value: ReviewContextValue = {
     active,
+    windowEnded,
     reviewMode,
     toggleReviewMode,
     sections: state.sections,
@@ -502,10 +572,16 @@ export function ReviewProvider({
     submit: onSubmit,
   };
 
+  // Show the "ended" notice to a reviewer when the window has passed but the
+  // flag is still on (and they're not the developer). Flip the flag off to
+  // remove it entirely.
+  const showEnded = mounted && hostAllowed && enabled && windowEnded && !devMode;
+
   return (
     <ReviewContext.Provider value={value}>
       {children}
       {active && <ReviewUI />}
+      {showEnded && <ReviewEnded />}
     </ReviewContext.Provider>
   );
 }

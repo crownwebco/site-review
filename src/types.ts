@@ -89,13 +89,7 @@ export interface ReviewOptions {
    */
   allowLocalhost?: boolean;
   /**
-   * Query param for the magic link. Visiting `?<param>=<token>` unlocks the
-   * feature for that browser (persisted); `?<param>=off` clears it.
-   * @default 'review'
-   */
-  tokenParam?: string;
-  /**
-   * localStorage namespace for this project (section data, unlock, mode).
+   * localStorage namespace for this project (section data, mode, pins, etc.).
    * @default 'site-review'
    */
   storageKey?: string;
